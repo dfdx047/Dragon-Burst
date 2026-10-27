@@ -1,0 +1,148 @@
+Dragon Burst (2026-10-27): Burst Limit's declaration-less draws (Renut M2).
+
+The 2D quads (BeginVertices: logos, title, menus) draw with no vertex declaration set: the XDK 6683 Direct3D bound
+the vertex shader to one at an earlier draw (0x820B06F8 -> 0x820B05B8 / 0x820B0398), patching its vfetch
+instructions in guest memory. The container's own vfetches are unpatched (format 0), so these draws fell to
+NoDeclaration and wrote nothing. The draw now reads the inputs from the shader object's patched microcode
+(PatchedFetchDeclarationLocked), before the container fallback.
+
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+@@ -17,6 +17,7 @@
+ #include <unordered_map>
+ #include <utility>
+ #include <vector>
++#include <algorithm>
+ 
+ #include <rex/hook.h>
+ 
+@@ -205,6 +206,102 @@
+   return vs.fetch_declaration.get();
+ }
+ 
++// Dragon Burst (2026-10-27): Burst Limit's 2D quads (BeginVertices) draw with no vertex declaration set: its Direct3D
++// bound the vertex shader to one at an earlier draw (0x820B06F8 -> 0x820B05B8 / 0x820B0398), patching the shader's
++// vfetch instructions in guest memory, and draws on with those. The containers' own vfetches are unpatched (format 0:
++// ShaderFetchDeclarationLocked finds nothing), so the inputs are read from the patched microcode, as the GPU would:
++// the container's vertex elements (address of the vfetch instruction, usage, usage index) locate each instruction in
++// the physical part (XGRegisterVertexShader 0x820A27B8 reads them the same way). Rebuilt when the words change (a
++// bind to another declaration).
++namespace {
++struct PatchedFetch {
++  std::vector<u32> words;  // the elements' instructions, 3 words each, as last read
++  std::unique_ptr<VertexDeclarationRecord> declaration;
++  u32 strides[d3d::kMaxStreams] = {};
++};
++std::unordered_map<u32, PatchedFetch> g_patched_fetch;  // by vertex shader object
++}  // namespace
++
++const VertexDeclarationRecord *PatchedFetchDeclarationLocked(u32 vs_va, const u32 **strides) {
++  const auto *object = GuestPtr<const u8>(vs_va);
++  if (!object)
++    return nullptr;
++  auto word_at = [](const u8 *p) { return u32(*reinterpret_cast<const be_u32 *>(p)); };
++  const u32 physical_va = word_at(object + 32);
++  const u8 *container = object + kVertexShaderContainer;
++  const u8 *header = container + word_at(container + 0x18);  // ShaderContainer::shaderOffset -> VertexShader
++  const u32 skip = word_at(header + 0x18), count = word_at(header + 0x1C);
++  if (!physical_va || !count || count > 32 || skip > 64)
++    return nullptr;
++  const u8 *physical = physical_va < 0x20000000u ? GuestPhysicalPtr<const u8>(physical_va)
++                                                 : GuestPtr<const u8>(physical_va);
++  if (!physical)
++    return nullptr;
++  physical += word_at(header);  // Shader::physicalOffset
++  struct Element {
++    u32 address, usage, usage_index;
++  };
++  std::vector<Element> elements(count);
++  std::vector<u32> words(size_t(count) * 3);
++  for (u32 i = 0; i < count; ++i) {
++    const u32 e = word_at(header + 0x24 + (skip + i) * 4);
++    elements[i] = {e & 0xFFF, (e >> 12) & 0xF, (e >> 16) & 0xF};
++  }
++  std::sort(elements.begin(), elements.end(), [](const Element &a, const Element &b) { return a.address < b.address; });
++  for (u32 i = 0; i < count; ++i)
++    for (u32 k = 0; k < 3; ++k)
++      words[i * 3 + k] = word_at(physical + elements[i].address * 12 + k * 4);
++  PatchedFetch &cached = g_patched_fetch[vs_va];
++  if (cached.declaration && cached.words == words) {
++    *strides = cached.strides;
++    return cached.declaration.get();
++  }
++  auto declaration = std::make_unique<VertexDeclarationRecord>();
++  u32 stride_of[d3d::kMaxStreams] = {};
++  u32 full_const = 0, full_stride = 0;
++  for (u32 i = 0; i < count; ++i) {
++    const u32 w0 = words[i * 3], w1 = words[i * 3 + 1], w2 = words[i * 3 + 2];
++    const bool mini = (w1 >> 30) & 1;
++    if (!mini) {
++      full_const = ((w0 >> 20) & 0x1F) * 3 + ((w0 >> 25) & 3);
++      full_stride = w2 & 0xFF;
++    }
++    const u32 format = (w1 >> 16) & 0x3F;
++    const bool is_signed = (w1 >> 12) & 1, is_integer = (w1 >> 13) & 1;
++    const i32 offset = i32(w2 << 1) >> 9;  // bits 8-30, signed
++    if (full_const < d3d::kFirstVertexFetchIndex || full_const > 95)
++      continue;
++    const u32 stream = 95 - full_const;
++    const u32 type = FetchDeclType(format, is_signed, is_integer);
++    if (type == kDeclTypeUnused || offset < 0)
++      continue;
++    GuestVertexElement element{};
++    element.Stream = u16(stream);
++    element.Offset = u16(u32(offset) * 4);
++    element.Type = type;
++    element.Method = 0;
++    element.Usage = u8(elements[i].usage);
++    element.UsageIndex = u8(elements[i].usage_index);
++    declaration->elements.push_back(element);
++    if (stream < d3d::kMaxStreams && !stride_of[stream])
++      stride_of[stream] = full_stride * 4;
++  }
++  if (declaration->elements.empty())
++    return nullptr;
++  BuildDeclarationLayout(*declaration);
++  {
++    static uint32_t logged = 0;
++    if (logged++ < 16)
++      RGPU_INFO("[db-decl] vertex shader {:08X}: {} inputs from its bound vfetches, stream 0 stride {}", vs_va,
++                declaration->elements.size(), stride_of[0]);
++  }
++  cached.words = std::move(words);
++  cached.declaration = std::move(declaration);
++  std::memcpy(cached.strides, stride_of, sizeof(stride_of));
++  *strides = cached.strides;
++  return cached.declaration.get();
++}
++
+ plume::RenderShader *GetHostShader(ShaderRecord *shader) {
+   if (!shader || !shader->entry)
+     return nullptr;
+diff --git a/app/src/renut_engine/gpu/guest/resources.h b/app/src/renut_engine/gpu/guest/resources.h
+--- a/app/src/renut_engine/gpu/guest/resources.h
++++ b/app/src/renut_engine/gpu/guest/resources.h
+@@ -86,6 +86,8 @@
+ // The vertex shader's fetch declaration (see ShaderRecord::fetch_declaration).
+ // Requires State().mutex.
+ const VertexDeclarationRecord *ShaderFetchDeclarationLocked(ShaderRecord &vs);
++// Dragon Burst: the vertex shader object's vfetches as its Direct3D bound them (shader.cpp); strides per stream.
++const VertexDeclarationRecord *PatchedFetchDeclarationLocked(u32 vs_va, const u32 **strides);
+ 
+ // The shader's host object, building it on first call. nullptr if the shader
+ // is missing from the cache or creation failed. Requires State().mutex.
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -4274,6 +4274,10 @@
+   } else if (vs && vs->bound_declaration) {
+     declaration = vs->bound_declaration.get();
+     shader_strides = vs->bound_strides;
++  } else if (const VertexDeclarationRecord *patched =
++                 vs ? PatchedFetchDeclarationLocked(device.U32(d3d::kDeviceOffsetVertexShader), &shader_strides)
++                    : nullptr) {
++    declaration = patched;  // Dragon Burst: as the game's Direct3D last bound the shader
+   } else if (const VertexDeclarationRecord *fetch = vs ? ShaderFetchDeclarationLocked(*vs) : nullptr) {
+     declaration = fetch;
+     shader_strides = vs->fetch_strides;

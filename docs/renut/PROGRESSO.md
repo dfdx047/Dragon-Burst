@@ -62,12 +62,24 @@ Renut: VBlank do D3D a 60 Hz (600 vblanks, device 40001980)
 [renut] 10.0 s: 477 game frames (47.66 fps), render thread busy 0.51 ms a frame, GPU 0.39 ms a frame; 1422 draws
 ```
 
-Faltam 2 shaders que nao estao no NSH nem no XEX (`vs 0DCC266CED2A159C`, `ps 5AAB5CA1B2C235F3`, capturados em
-`files/shader_capture/`).
+Faltavam 2 shaders que nao estao no NSH nem no XEX (`vs 0DCC266CED2A159C`, `ps 5AAB5CA1B2C235F3`: o jogo monta-os em
+tempo de execucao). O Renut captura-os em `files/shader_capture/`; copiados para `out/renut/captured/` o
+`renut-shaders.sh` junta-os: 150 entradas.
 
-## M2: imagem ate ao titulo (em curso)
+## M2: imagem ate ao menu principal (2026-10-27, 21:10 Lisboa)
 
-Os clears e os resolves funcionam (o resolve intermedio do logo sai branco, como o clear), mas nenhum draw escreve:
-o ecra fica preto. Causa encontrada: os quads 2D desenham **sem declaracao de vertices** (`device+11820` = 0) e os
-vfetch do VS vem por patchar (formato 0 no contentor); o Renut usa entao a declaracao do `D3DVertexShader_Bind`, que
-no BL ainda nao tem hook. Proximo passo: o Bind do XDK 6683.
+Os quads 2D (BeginVertices: logos, titulo, menus) desenham **sem declaracao de vertices** (`device+11820` = 0): o D3D
+do XDK 6683 liga o VS a uma declaracao num draw anterior (`820B06F8` -> `820B05B8` / `820B0398`) e reescreve os vfetch
+do shader na memoria do guest. Os vfetch do contentor estao por patchar (formato 0), por isso esses draws caiam em
+`NoDeclaration` e nao escreviam nada (ecra preto). `patches/renut/0101`: o draw le as entradas dos vfetch ja
+patchados do objeto do VS (os elementos do contentor dao o endereco de cada instrucao), como a GPU faria.
+
+Logos (Atari, Bandai Namco, CRIWARE), titulo, dialogos do save e menu principal iguais ao Xenia. No Odin:
+
+| Ecra | Xenia | Renut |
+|---|---|---|
+| Logos | 46-48 fps | 47-48 fps, GPU 0,5 ms |
+| Titulo | 60 fps, GPU 2,2 ms (overlay) | 60 fps, GPU 1,5-1,75 ms |
+| Menu principal | 60 fps | 60 fps, GPU 1,0-1,3 ms |
+
+Os logos correm a ~48 fps nos dois (o jogo e assim nesses ecras).

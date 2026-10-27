@@ -14,6 +14,9 @@
 # So refaz o trabalho quando muda alguma entrada (carimbo em out/renut/.stamp): o data000.cpk (tamanho e data),
 # o commit do mgr-nx-deko, os patches de patches/renut, este script ou a versao do DXC.
 # A pasta do jogo (a do disco: default.xex, LONG2DATA/) e DB_GAME_DIR, ou external/game (ligacao simbolica).
+# Os shaders que o jogo monta em tempo de execucao (2 no arranque, nem no NSH nem no XEX) o Renut captura no aparelho
+# em files/shader_capture/; copiados para out/renut/captured/ (adb pull .../files/shader_capture/. out/renut/captured/)
+# entram aqui tambem.
 #
 # Uso (a partir da raiz do repositorio):
 #   bash tools/renut-shaders.sh            # so se mudou alguma coisa
@@ -27,6 +30,7 @@ MGRNX="external/mgr-nx-deko"
 XR="$MGRNX/app/thirdparty/reblue-XenosRecomp"
 HOST_HLSL="$MGRNX/app/src/renut_engine/gpu/shaders/host"
 CPK="${DB_GAME_DIR:-external/game}/LONG2DATA/LONG2DATA_US.CPK"
+CAPTURED="out/renut/captured"
 XEX="${DB_GAME_DIR:-external/game}/default.xex"
 OUT="out/renut"
 HOST="out/host"
@@ -47,6 +51,7 @@ fi
 STAMP="$( {
   stat -L -c '%s %Y' "$CPK"
   stat -L -c '%s %Y' "$XEX"
+  cat "$CAPTURED"/*.bin 2>/dev/null || true
   git -C "$MGRNX" rev-parse HEAD
   cat patches/renut/*.patch 2>/dev/null || true
   cat "$0" tools/renut-host/CMakeLists.txt tools/renut/extract_bl_shaders.py
@@ -83,6 +88,10 @@ cmake --build "$HOST/build" --target XenosRecomp > "$HOST/build.log" 2>&1 \
 # 1. Contentores do XBOX360.NSH (dentro do LONG2DATA_US.CPK).
 rm -rf "$OUT/containers"
 python3 -I tools/renut/extract_bl_shaders.py "$CPK" "$OUT/containers" "$XEX"
+if compgen -G "$CAPTURED/*.bin" > /dev/null; then
+  cp "$CAPTURED"/*.bin "$OUT/containers/"
+  echo "  $(ls "$CAPTURED"/*.bin | wc -l) capturados no aparelho ($CAPTURED)"
+fi
 
 # 2. Traducao (sem a passagem de early alpha, por agora).
 TMP="$OUT/shader_cache.cpp.tmp"
