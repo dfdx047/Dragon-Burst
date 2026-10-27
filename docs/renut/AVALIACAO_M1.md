@@ -195,14 +195,19 @@ distribuição):
    que o ProjectSwordMan já usa no Android.
 4. Ligar `renut_shader_capture_dir` no primeiro arranque, para apanhar variantes que falhem.
 
-Risco por verificar: microcode de um XDK de 2008 no XenosRecomp, que até agora só viu 7645, 21076 e 21173. São 284
-shaders, uma corrida curta no PC chega para saber.
+**Feito a 27/10 (passos 1–3, sem o 4):** `tools/renut/extract_bl_shaders.py` lê o TOC com base em `ContentOffset`,
+descomprime o `XBOX360.NSH` (41 216 → 335 360 bytes, NSXR) e parte-o em 284 containers (142 VS + 142 PS, contíguos,
+sem sobras), 139 únicos (49 VS + 90 PS). O XenosRecomp do ProjectSwordMan (`out/host/build/xr`) traduz os 139 com o
+DXC para DXIL e SPIR-V **sem nenhum erro**, em 2 s (`g_shaderCacheEntryCount = 139`; 362 blocos predicados sem
+branch, 16 PS com kill, 5 com escrita de profundidade). O microcode do XDK 6683 não é problema para a tradução; se
+desenha certo, só o M2 diz. A cache fica fora do git (`~/.cache/dragonburst-work/renut/`). O ISO Redump (USA) tem a
+mesma `default.xex` do build (SHA1 aec598f8…).
 
 ## 4. Estimativa (o port do Renut para Android já existe no ProjectSwordMan: M1/M2 do MGR feitos a 23/10)
 
 | Marco | Trabalho no Burst Limit | Dias realistas |
 |---|---|---|
-| **M1**: compila no Dragon-Burst, Renut escolhido por cvar, hooks e guardas do BL | (a) layout por jogo no Renut: voltar aos valores do N&B (todos provados acima) + tabela da cauda do BL, ~60 constantes em `d3d.h`, `d3d_native.h`, `device.cpp`, `draw.cpp`, `sa2_renut_pacing.cpp`: **1,5–2 d**; (b) 19 hooks com assinatura igual a apontar para o BL + criação nova em `820B7230` + InsertCallback (`820AE868`) + PS (`820A24E8`, `820F9CF8`) + `820AEAF0` sem efeito + guardas: **1,5–2 d**; (c) ligar BeginTiling/EndTiling do N&B (`820BA5A8`/`820BAA48`) e acertar os offsets: **1 d**; (d) extração do NSH + XenosRecomp: **0,5–1 d**; (e) trazer o CMake/glue do ProjectSwordMan para o Dragon-Burst (o build tem patches próprios): **1–1,5 d** | **5–8 dias** |
+| **M1**: compila no Dragon-Burst, Renut escolhido por cvar, hooks e guardas do BL | (a) layout por jogo no Renut: voltar aos valores do N&B (todos provados acima) + tabela da cauda do BL, ~60 constantes em `d3d.h`, `d3d_native.h`, `device.cpp`, `draw.cpp`, `sa2_renut_pacing.cpp`: **1,5–2 d**; (b) 19 hooks com assinatura igual a apontar para o BL + criação nova em `820B7230` + InsertCallback (`820AE868`) + PS (`820A24E8`, `820F9CF8`) + `820AEAF0` sem efeito + guardas: **1,5–2 d**; (c) ligar BeginTiling/EndTiling do N&B (`820BA5A8`/`820BAA48`) e acertar os offsets: **1 d**; (d) extração do NSH + XenosRecomp: **feito**; (e) trazer o CMake/glue do ProjectSwordMan para o Dragon-Burst (o build tem patches próprios): **1–1,5 d** | **4,5–7 dias** |
 | **M2**: arranca até ao título no RP5 | primeiros arranques: callbacks e Swap (thread `820B8808` que também chama Swap), tiling com MSAA (EDRAM/resolve por tile), front buffer automático, `VK_ERROR_DEVICE_LOST` como no MGR | **1–2 semanas** |
 | **M3**: gameplay | cobertura de shaders, efeitos (`NFX`), pós-processamento por resolve, desempenho, Mali (BCn/GS) como no MGR | **3–6 semanas** |
 
@@ -217,8 +222,7 @@ shaders, uma corrida curta no PC chega para saber.
    CreateDevice original com tipo 2) não se transporta: é preciso um hook novo em `820B7230` sobre um device que o jogo
    já alocou. O hook de callbacks troca de assinatura. Pode haver outro D3D embutido no jogo que só aparece em execução,
    por exemplo pacotes escritos em linha que dependam de fences reais.
-3. **Shaders e tiling:** a cache depende de corrigir o leitor do CPK (base em `ContentOffset`, CRILAYLA sem magic) e de o
-   XenosRecomp aceitar microcode 6683, o que ainda não foi testado. O tiling predicado é um caminho do Renut que o MGR
+3. **Tiling** (os shaders ficaram resolvidos a 27/10: leitor do CPK corrigido e os 139 traduzidos). O tiling predicado é um caminho do Renut que o MGR
    nunca exercitou no Android.
 
 Não bloqueia: os 19 hooks de assinatura igual, as fences, o anel, os draws, o clear, o resolve e o Swap. A lógica é a
