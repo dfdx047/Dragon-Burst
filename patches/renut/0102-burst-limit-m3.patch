@@ -1,0 +1,95 @@
+Dragon Burst (2026-10-27): Burst Limit in game (Renut M3).
+
+Diagnostics: the guest texture formats Burst Limit samples, once each ([db-tex]), and the texture behind each fetch
+slot of the draws banjo_renut_diag_draw_log_s logs.
+
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -2096,6 +2096,22 @@
+ // sa2-nx (2026-10-20, sa2_renut_chain_reuse): 'slot_fx' (32 entries, or null) receives each bound slot's effects (its
+ // memo entry's on a hit, the bind's otherwise) and 'all_memo' whether every bound slot went through the memo (a
+ // texture header to key it), for the chain's reuse of the next draw.
++// The two frames banjo_renut_diag_draw_log_s logs (DrawLog; Dragon Burst: FillTextures's [drawlog] texture lines too).
++bool DrawLogFrameLocked() {
++  static const int32_t at = REXCVAR_GET(banjo_renut_diag_draw_log_s);
++  if (at <= 0)
++    return false;
++  static const auto start = std::chrono::steady_clock::now();
++  static uint64_t first_frame = 0;
++  const uint64_t frame = TextureFrameLocked();
++  if (!first_frame) {
++    if (std::chrono::steady_clock::now() - start < std::chrono::seconds(at))
++      return false;
++    first_frame = frame + 1;  // from the next whole frame
++  }
++  return frame >= first_frame && frame <= first_frame + 1;
++}
++
+ void FillTextures(const GuestDevice &device, u32 fetch_mask, SharedConstants &sc, BindEffects *slot_fx = nullptr,
+                   bool *all_memo = nullptr) {
+   if (all_memo)
+@@ -2165,6 +2181,14 @@
+     }
+     BindEffects fx;
+     const TextureBinding binding = BindTextureLocked(texture_va, fetch, &fx);
++    // Dragon Burst (2026-10-27): the texture behind each fetch slot of the logged draws (the line before their own).
++    if (DrawLogFrameLocked()) {
++      u32 w = 0, h = 0, d = 0;
++      fetch.Size(w, h, d);
++      RGPU_INFO("[drawlog]   slot {}: texture {:08X} format {} {}x{} base {:08X} -> host slot {}{}", r, texture_va,
++                u32(fetch.Format()), w, h, fetch.dword[1] & ~0xFFFu, binding.slot,
++                binding.slot == kNullTextureSlot ? " (null texture)" : "");
++    }
+     // SwordMan (Android, renut/0021): an answer that depended on the draw's target size is not kept.
+     const bool no_memo = TakeBindNoMemoLocked();
+     if (no_memo && all_memo)
+@@ -4147,21 +4171,11 @@
+ // seconds after the first draw, every draw of the next two frames: its shaders, counts, target and state, in order.
+ void DrawLog(const DrawCall &call, const Geometry &geometry, const ShaderRecord *vs, const ShaderRecord *ps,
+              const Targets &targets, const PipelineKey &key, const SharedConstants &sc, u32 export_count) {
+-  static const int32_t at = REXCVAR_GET(banjo_renut_diag_draw_log_s);
+-  if (at <= 0)
++  if (!DrawLogFrameLocked())
+     return;
+-  static const auto start = std::chrono::steady_clock::now();
+-  static uint64_t first_frame = 0;
+   static uint32_t ordinal = 0;
+   static uint64_t ordinal_frame = 0;
+   const uint64_t frame = TextureFrameLocked();
+-  if (!first_frame) {
+-    if (std::chrono::steady_clock::now() - start < std::chrono::seconds(at))
+-      return;
+-    first_frame = frame + 1;  // from the next whole frame
+-  }
+-  if (frame < first_frame || frame > first_frame + 1)
+-    return;
+   if (frame != ordinal_frame) {
+     ordinal_frame = frame;
+     ordinal = 0;
+diff --git a/app/src/renut_engine/gpu/render/textures.cpp b/app/src/renut_engine/gpu/render/textures.cpp
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -4,6 +4,7 @@
+ #include "renut_engine/gpu/render/textures.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <bit>
+ #include <cmath>
+ #include <cstring>
+@@ -634,6 +635,14 @@
+   t.mip_levels = render_target ? 1 : std::min(fetch.MaxMipLevel() + 1, size_levels);
+   t.render_target = render_target;
+   plume::RenderFormat format = render_target ? rt_format : t.info.host;
++  // Dragon Burst (2026-10-27): the guest formats Burst Limit samples, once each, and those with no host format.
++  if (!render_target) {
++    static std::atomic<uint64_t> seen{0};
++    const u32 guest = u32(fetch.Format()) & 63;
++    if (!(seen.fetch_or(uint64_t(1) << guest) & (uint64_t(1) << guest)))
++      RGPU_INFO("[db-tex] guest texture format {} first sampled ({}x{}){}", guest, width, height,
++                format == plume::RenderFormat::UNKNOWN ? ": no host format, not drawn" : "");
++  }
+   if (format == plume::RenderFormat::UNKNOWN)
+     return false;
+ 

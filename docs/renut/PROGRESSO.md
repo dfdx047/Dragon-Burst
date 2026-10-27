@@ -83,3 +83,32 @@ Logos (Atari, Bandai Namco, CRIWARE), titulo, dialogos do save e menu principal 
 | Menu principal | 60 fps | 60 fps, GPU 1,0-1,3 ms |
 
 Os logos correm a ~48 fps nos dois (o jogo e assim nesses ecras).
+
+## M3: luta e campanha (2026-10-27, 22:20 Lisboa)
+
+O jogo corre no Renut: luta CPU x CPU (Goku x Krillin, Plains, 120 s) e campanha (Z Chronicles, "01. Saiyan Arrival",
+cutscenes e luta, 180 s), sem travar nem perder frames. Medido no Odin, na mesma cena (fps do jogo e GPU por frame,
+do log: `[renut] 10.0 s` / `dbz3: perf`):
+
+| Cena | Xenia | Renut |
+|---|---|---|
+| Luta CPU x CPU, 120 s | 59,8 fps (min 59,3), GPU 12,5 ms (max 15,5) | 60,0 fps (min 59,7), GPU 4,5 ms (max 5,1) |
+| Campanha + cutscene, 180 s | 59,9 fps (min 59,9), GPU 10,6 ms (max 11,5) | 60,0 fps (min 59,5), GPU 4,4 ms (max 5,0) |
+
+### Bloqueios de imagem (por resolver)
+
+1. **Cabelo e partes dos fatos sem cor** (cabelo do Goku/Raditz branco-cinzento com os tracos pretos, camisa do Krillin
+   branca). Shader das personagens `ps 8E5E328AC8EA3309`: cor = `tex0` (slot 1, DXT5 1024) menos ou vezes a rampa
+   (`texture1`, slot 0, DXT1 256x256, uma por personagem) lida em `(luz + tex0.a * c255.z, |ambientcolt.w|)`; o sinal de
+   `ambientcolt.w` (c8) escolhe subtrair (cabelo preto = branco - rampa) ou multiplicar. O resultado e o da `tex0` crua.
+   Tentado sem efeito: as heuristicas do Banjo desligadas (`resolve_skip`, `upload_cached`, `store_cards`, `cpu_memos`,
+   `shared_dedupe`, `pipeline_memo`, `depth_words_lazy`, `alpha_to_mask_test`, `half_pixel_offset`, `device_swizzle`);
+   os literais como imediatos (`BANJO_RENUT_LITERALS_CBUF=0`); os deltas do snapshot desligados
+   (`sa2_renut_snapshot_deltas`). Visto no log: formatos usados 2/6/18/19/20, todos suportados; as duas texturas
+   ligadas em cada draw (nenhuma nula). Hipotese: a rampa lida devolve ~0 (conteudo da DXT1 256x256: destiling ou
+   cache) ou o c8 chega com outro valor; proximo passo: `show_texture` da rampa (DD93A0DC) e as constantes c0-c8 no
+   drawlog.
+2. **Fundo desfocado** (o Xenia mostra-o nitido). O pos-processamento tem motion blur por reprojecao da profundidade
+   (`ps FE8B85F1`, `VelocityMatrix` em c0-c3) e a composicao (`1E001FAB`). A resolve de profundidade (DD92351C) tem a
+   cena (vista com `show_texture`). Tentado: deltas desligados, sem efeito. Hipotese: a escala da profundidade
+   (o jogo pode esperar outra codificacao) ou o alvo de velocidade (`40AFEA00`, formato 34) lido com outro formato.
