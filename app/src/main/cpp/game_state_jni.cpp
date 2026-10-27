@@ -174,6 +174,14 @@ const bool g_gpu_loss_handler_set = [] {
 }();
 }  // namespace
 
+// O mesmo para o Renut (renut/renut_glue.cpp: VK_ERROR_DEVICE_LOST no plume, renut/0026).
+extern "C" void dragonburst_gpu_lost(const char* reason) {
+  OnHostGpuLost(reason);
+}
+extern "C" bool dragonburst_gpu_is_lost() {
+  return g_gpu_lost.load(std::memory_order_acquire);
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_dfdx047_dragonburst_game_NativeGameState_nativeGpuLost(JNIEnv*, jclass) {
   return g_gpu_lost.load(std::memory_order_acquire) ? JNI_TRUE : JNI_FALSE;

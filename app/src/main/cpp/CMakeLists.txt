@@ -224,6 +224,14 @@ endif()
 # rex_app.cpp, e as opcoes de plataforma do SDK.
 rexglue_configure_target(main GPU_PLUGINS xenos)
 
+# Renut: renderizador nativo de Direct3D do mgr-nx-deko (do Zandatsu), escolhido no arranque com
+# swordman_renderer = renut (padrao xenos). Shaders: tools/renut-shaders.sh. Mapa de hooks: docs/renut/.
+option(DB_RENUT "Compila o Renut (swordman_renderer = renut)" ON)
+if(DB_RENUT)
+    include("${DB_REPO_ROOT}/cmake/renut.cmake")
+    db_renut_setup(main)
+endif()
+
 # Alvo minimo: ARMv8.2-A (Snapdragon 865 / Cortex-A77 e A55 para cima, o que
 # inclui o Unisoc T770 do RG Cube). Fica depois do rexglue_configure_target, que
 # poe -march=armv8-a, para prevalecer.

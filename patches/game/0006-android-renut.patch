@@ -1,0 +1,90 @@
+Dragon Burst (2026-10-27): the Renut on the app phases, as Zandatsu's MgrApp does, and the v6 GPU-wait hook
+handing over to the Renut's (only with DB_RENUT).
+
+diff --git a/src/burstlimit_app.h b/src/burstlimit_app.h
+--- a/src/burstlimit_app.h
++++ b/src/burstlimit_app.h
+@@ -25,6 +25,11 @@
+ 
+ #include "burstlimit_menuart.h"
+ 
++// Dragon Burst: o Renut (swordman_renderer = renut), app/src/main/cpp/renut/db_renut_app.h.
++#if defined(DB_RENUT)
++#include "db_renut_app.h"
++#endif
++
+ // burstlimit_patches.cpp
+ void BurstLimitApplyPostEffectSettings();
+ void BurstLimitGraphicsPresetReady();
+@@ -111,7 +116,12 @@
+   // Burst Limit only ships with the Xenos (D3D12) renderer, so use it when no
+   // gpu_plugin was configured instead of starting headless.
+   void OnPreSetup(rex::RuntimeConfig& config) override {
++#if defined(DB_RENUT)
++    const bool renut = DbRenutPreSetup(config);
++    if (!renut && config.gpu_plugin.empty()) {
++#else
+     if (config.gpu_plugin.empty()) {
++#endif
+       config.gpu_plugin = "xenos";
+     }
+     BurstLimitApplyPostEffectSettings();
+@@ -189,6 +199,9 @@
+   // start screen (burstlimit_launcher.cpp) first, unless it's turned off.
+   std::optional<rex::PathConfig> OnFinalizePaths(
+       const rex::PathConfig& defaults, std::function<void(rex::PathConfig)> resume) override {
++#if defined(DB_RENUT)
++    DbRenutStart(app_context(), [this] { return imgui_drawer(); });
++#endif
+     if (!imgui_drawer()) {
+       return defaults;
+     }
+@@ -245,7 +258,23 @@
+     return BurstLimitCreateAchievementToast(imgui_drawer(), immediate_drawer());
+   }
+ 
++#if defined(DB_RENUT)
++  // Renut: o ImGui do SDK (menus) desenhado pelo plume, e a janela dele.
++  std::unique_ptr<rex::ui::ImmediateDrawer> OnCreateImmediateDrawer() override {
++    if (banjo::renut_gpu::Active()) return renut::gpu::CreateOverlayDrawer();
++    return ReXApp::OnCreateImmediateDrawer();
++  }
++
++  void OnWindowPixelSizeChanged(uint32_t width, uint32_t height) override {
++    ReXApp::OnWindowPixelSizeChanged(width, height);
++    if (banjo::renut_gpu::Active()) renut::gpu::OnWindowResized();
++  }
++#endif
++
+   void OnShutdown() override {
++#if defined(DB_RENUT)
++    if (banjo::renut_gpu::Active()) renut::gpu::ShutdownRenderer();
++#endif
+     BurstLimitSetExitHandler(nullptr);
+     rex::ui::UnregisterBind("bind_free_camera");
+     rex::ui::UnregisterBind("bind_freeze_game");
+diff --git a/src/burstlimit_patches.cpp b/src/burstlimit_patches.cpp
+--- a/src/burstlimit_patches.cpp
++++ b/src/burstlimit_patches.cpp
+@@ -875,8 +875,21 @@
+ bool BurstLimitNativeGpuWait();
+ #endif
+ 
++#if defined(DB_RENUT)
++// Dragon Burst: with the Renut (swordman_renderer = renut) the wait is its own (BlockOnFence waits for the render
++// thread); its CBlocker::Check side returns "done" (patches/renut/0100).
++#include "renut_engine/gpu/banjo_renut_select.h"
++extern "C" void renut_native_sub_820B10E8(PPCContext& ctx, uint8_t* base);
++#endif
++
+ REX_EXTERN(__imp__sub_820B10E8);
+ extern "C" REX_FUNC(sub_820B10E8) {
++#if defined(DB_RENUT)
++  if (banjo::renut_gpu::Active()) {
++    renut_native_sub_820B10E8(ctx, base);
++    return;
++  }
++#endif
+   if (BurstLimitNativeGpuWait()) {
+     // The original keeps its hang check and returns "keep waiting".
+     __imp__sub_820B10E8(ctx, base);

@@ -68,6 +68,20 @@ for M in "${SUBMODULES[@]}"; do
 done
 # libjuice (ICE do online) vem dentro do SDK, sem submodulo.
 
+# Renut: o mgr-nx-deko (sem submodulos) em external/mgr-nx-deko; tools/apply-renut-patches.sh aplica-lhe os patches.
+MGRNX="$ROOT/external/mgr-nx-deko"
+if [ ! -d "$MGRNX/.git" ]; then
+  echo "== clone $MGRNX_REPO"
+  git clone "$MGRNX_REPO" "$MGRNX"
+fi
+if [ "$(git -C "$MGRNX" rev-parse --short=7 HEAD)" != "$MGRNX_COMMIT" ]; then
+  if [ -n "$(git -C "$MGRNX" status --porcelain --untracked-files=no)" ]; then
+    echo "ERRO: $MGRNX fora de $MGRNX_COMMIT e com alteracoes. Para recomecar: rm -rf $MGRNX" >&2
+    exit 1
+  fi
+  git -C "$MGRNX" -c advice.detachedHead=false checkout "$MGRNX_COMMIT"
+fi
+
 echo
 echo "external/burstlimit pronto. Proximo passo:"
 echo "  bash tools/apply-patches.sh"

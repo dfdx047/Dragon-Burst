@@ -55,3 +55,6 @@ keystore.properties
 *.pyo
 .venv/
 .pytest_cache/
+
+# Renut: ferramentas do PC e shaders traduzidos do jogo (dados do jogo: nunca no git)
+/out/

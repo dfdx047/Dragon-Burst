@@ -1,0 +1,797 @@
+Dragon Burst (2026-10-27): the Renut on Burst Limit (XDK 2.0.6683).
+
+The device is N&B's layout (the values in brackets in the code) with the BL's own tail; the hooks at the
+BL's addresses; the device creation is the hook on the hardware setup 0x820B7230 (Direct3D_CreateDevice is
+inlined into the game); the interrupt packet writer 0x820AE868 stands in for InsertCallback; XGRegisterPixelShader
+is inlined, so the hooks are on CreatePixelShader 0x820A24E8 and the game's material loader 0x820F9CF8.
+Evidence: docs/renut/HOOKMAP_BL.md and AVALIACAO_M1.md.
+
+diff --git a/app/src/renut_engine/gpu/backend/queued.cpp b/app/src/renut_engine/gpu/backend/queued.cpp
+--- a/app/src/renut_engine/gpu/backend/queued.cpp
++++ b/app/src/renut_engine/gpu/backend/queued.cpp
+@@ -235,7 +235,9 @@
+ // swap flags: the hooks read and write them on the live device). Their chunks are not compared; the render thread's
+ // device keeps them as the frame's whole copy had them.
+ constexpr u32 kDeltaUnreadEnd = kDeltaVertexF - 0x300;  // 0x480: the fetch constants' start
+-constexpr u32 kDeltaPrivateUnreadBegin = 11008, kDeltaPrivateUnreadEnd = 12224;
++// Dragon Burst (2026-10-27): the Burst Limit's private words from the global qword (10880) to before the vertex
++// declaration (11820), in whole chunks: 10880-11775 (MGR 11008-12223).
++constexpr u32 kDeltaPrivateUnreadBegin = 10880, kDeltaPrivateUnreadEnd = 11776;
+ constexpr bool DeltaChunkRead(u32 i) {
+   const u32 at = DeltaChunkOffset(i);
+   return !(at < kDeltaUnreadEnd || (at >= kDeltaPrivateUnreadBegin && at + 64 <= kDeltaPrivateUnreadEnd));
+@@ -258,7 +260,7 @@
+ }
+ constexpr DeltaChunkList kDeltaAllChunks = MakeDeltaChunkList(false);
+ constexpr DeltaChunkList kDeltaReadChunks = MakeDeltaChunkList(true);
+-static_assert(kDeltaReadChunks.count == 40);
++static_assert(kDeltaReadChunks.count == 39);  // Dragon Burst: BL (MGR 40)
+ // Whether device byte 'at' is one the render thread reads (the verify mode compares those).
+ constexpr bool DeltaByteRead(u32 at) {
+   return !(at < kDeltaUnreadEnd || (at >= kDeltaPrivateUnreadBegin && at < kDeltaPrivateUnreadEnd));
+diff --git a/app/src/renut_engine/gpu/banjo_shared_hooks.h b/app/src/renut_engine/gpu/banjo_shared_hooks.h
+--- a/app/src/renut_engine/gpu/banjo_shared_hooks.h
++++ b/app/src/renut_engine/gpu/banjo_shared_hooks.h
+@@ -2,6 +2,6 @@
+ #pragma once
+ #include <cstdint>
+ struct PPCContext;
+-extern "C" void renut_native_sub_826BC928(PPCContext&, uint8_t*);
+-extern "C" void renut_native_sub_826BCD40(PPCContext&, uint8_t*);
+-extern "C" void renut_native_sub_826B3510(PPCContext&, uint8_t*);
++extern "C" void renut_native_sub_820A8A20(PPCContext&, uint8_t*);
++extern "C" void renut_native_sub_820A8E10(PPCContext&, uint8_t*);
++extern "C" void renut_native_sub_820B64C0(PPCContext&, uint8_t*);
+diff --git a/app/src/renut_engine/gpu/d3d/bl_hook_map.h b/app/src/renut_engine/gpu/d3d/bl_hook_map.h
+--- a/app/src/renut_engine/gpu/d3d/bl_hook_map.h
++++ b/app/src/renut_engine/gpu/d3d/bl_hook_map.h
+@@ -0,0 +1,54 @@
++// DBZ Burst Limit (default.xex USA, SHA-1 aec598f8..., XDK 2.0.6683): code guards for Renut's hooks.
++// Same format as mgr-nx-deko's d3d/mgr_hook_map.h: 64 bytes of the original image at each address and their FNV-32
++// (offset basis 2166136261, prime 16777619). Image from `optxbox xex image default.xex` (never commit it).
++// Evidence for each address: docs/renut/HOOKMAP_BL.md. Only the "certo" ones are guarded here.
++#pragma once
++#include <cstdint>
++namespace renut::gpu::bl {
++struct GuestCodeGuard { uint32_t address, bytes, fnv32; const char* name; };
++inline constexpr GuestCodeGuard kGuestCodeGuards[] = {
++  // Device creation. Direct3D_CreateDevice is inlined (LTCG) into the game's 0x820F92F8; the hook goes on
++  // 0x820B7230 (the hardware setup it calls), which calls the three below.
++  {0x820F92F8u, 64u, 0x781147F5u, "Direct3D_CreateDevice_inline_game"},
++  {0x820B7230u, 64u, 0xD7C92B65u, "HardwareDeviceSetup"},
++  {0x820B6E38u, 64u, 0xA2AE0241u, "InitializePresentationParameters"},
++  {0x820B6B58u, 64u, 0xAC346E21u, "InitializeApiState"},
++  {0x820B7670u, 64u, 0xFC6359A0u, "XenonGpu_Initialize"},
++  // Ring, segments and fences.
++  {0x820AE690u, 64u, 0x1BB85863u, "KickOff"},
++  {0x820AE430u, 64u, 0x84158D45u, "KickOffSegment"},
++  {0x820AD570u, 64u, 0x1E8A35A0u, "BeginRingBig"},
++  {0x820AD898u, 64u, 0x5901C2B7u, "RingBufferDeviceAllocate"},
++  {0x820ADAA0u, 64u, 0x72A8C079u, "AllocateInlineData"},
++  {0x820ADC38u, 64u, 0x747E9FD4u, "NewSegment"},
++  {0x820AE790u, 64u, 0x7BF6C936u, "BlockOnFence"},  // (CDevice*, Fence, Type): no NoKick argument
++  {0x820B10E8u, 64u, 0xCE3698A3u, "CBlocker_Check"},
++  // Presentation.
++  {0x820B5F90u, 64u, 0x33B71D9Eu, "SynchronizeToPresentationInterval"},
++  {0x820B64C0u, 64u, 0x4EF47090u, "Swap"},
++  // Draws, clear, resolve.
++  {0x820A8A20u, 64u, 0xA9165CF7u, "DrawVertices"},
++  {0x820A8E10u, 64u, 0x30FEF06Bu, "DrawIndexedVertices"},
++  {0x820A8538u, 64u, 0x6670567Cu, "BeginVertices"},
++  {0x820A89D8u, 64u, 0xC5B30046u, "DrawVerticesUP"},  // BeginVertices + memcpy + inline end; not one of the 29
++  {0x820BF910u, 64u, 0xEBABD8EFu, "ClearF"},
++  {0x820BB348u, 64u, 0xCD6BDA8Du, "Resolve"},
++  {0x820A9C38u, 64u, 0x3C8F883Fu, "WindowScissor"},
++  // Shaders, declarations, resources. XGRegisterPixelShader is inlined into the two "_inline" functions.
++  {0x820A27B8u, 64u, 0x9E4BEE46u, "XGRegisterVertexShader"},
++  {0x820A24E8u, 64u, 0xB31BB30Bu, "CreatePixelShader_XGRegisterPixelShader_inline"},
++  {0x820F9CF8u, 64u, 0x841742F9u, "GameShaderLoad_XGRegisterPixelShader_inline"},
++  {0x820A2C78u, 64u, 0x670D9E1Bu, "CreateVertexDeclaration"},
++  {0x820A9268u, 64u, 0x9812F838u, "D3DResource_Destroy"},
++};
++
++// Probable equivalents (different signature from MGR's; see HOOKMAP_BL.md lines 12 and 16). Guarded the same way,
++// kept apart until a run confirms them.
++inline constexpr GuestCodeGuard kGuestCodeGuardsProbable[] = {
++  {0x820AE868u, 64u, 0x013DE29Cu, "InsertCallbackPacket"},  // (CDevice*, PRING, flags, pCallback, Context) -> PRING
++  {0x820EA188u, 64u, 0x1502D496u, "InsertCallback_inline_game"},
++  {0x820AEAF0u, 64u, 0xC1901C69u, "InitializeRingBuffer"},  // SetRingBufferParameters' internal equivalent
++};
++
++// Not in this game: IsFencePending (never used), EngineSwapProgress_reference (MGR's engine).
++}  // namespace renut::gpu::bl
+diff --git a/app/src/renut_engine/gpu/d3d/d3d.h b/app/src/renut_engine/gpu/d3d/d3d.h
+--- a/app/src/renut_engine/gpu/d3d/d3d.h
++++ b/app/src/renut_engine/gpu/d3d/d3d.h
+@@ -226,7 +226,7 @@
+ // Public D3DDevice (0x2B00 bytes in N&B's XDK) followed by the CDevice-private
+ // tail of the allocation Direct3D_CreateDevice makes: 0x6080 bytes in SA2's
+ // (sub_8254FC10 allocates 24704, aligned 128; N&B 0x5E00).
+-constexpr u32 kDeviceAllocSize = 0x6080;
++constexpr u32 kDeviceAllocSize = 0x5780;  // Dragon Burst: BL 6683 (820F92F8 memset 22400)
+ constexpr u32 kDeviceAlignment = 0x80;
+ 
+ struct Device {
+@@ -279,22 +279,22 @@
+ // CDevice-private fields Direct3D_CreateDevice initialises (byte offsets into
+ // the allocation, from its decompilation at 0x8264DF28).
+ // sa2-nx: SA2's sub_8255C808 and sub_8254FC10 (N&B 10888, 10892, 23980).
+-constexpr u32 kDeviceOffsetCreationThreadId = 11016;  // GetCurrentThreadId()
+-constexpr u32 kDeviceOffsetIsTitleProcess = 11020;    // KeGetCurrentProcessType() == 2
+-constexpr u32 kDeviceOffsetBehaviorFlags = 24392;     // Direct3D_CreateDevice arg 4
++constexpr u32 kDeviceOffsetCreationThreadId = 10888;  // GetCurrentThreadId()
++constexpr u32 kDeviceOffsetIsTitleProcess = 10892;    // KeGetCurrentProcessType() == 2
++constexpr u32 kDeviceOffsetBehaviorFlags = 22300;  // Dragon Burst: BL (N&B 23980)     // Direct3D_CreateDevice arg 4
+ 
+ // Bound objects the Set* calls store in the CDevice-private area (guest VAs).
+ // sa2-nx: SA2's "is the resource bound" test (sub_825498C8) reads every one of
+ // these but the strides (sub_82565758, BeginVertices). N&B's in brackets.
+-constexpr u32 kDeviceOffsetVertexDeclaration = 12240;  // SetVertexDeclaration [0x2E2C]
+-constexpr u32 kDeviceOffsetIndexBuffer = 12812;        // SetIndices [0x3094]
+-constexpr u32 kDeviceOffsetRenderTargets = 12816;      // SetRenderTarget, [4] [0x3098]
+-constexpr u32 kDeviceOffsetDepthStencil = 12832;       // SetDepthStencilSurface [0x30A8]
+-constexpr u32 kDeviceOffsetStreamSources = 12836;      // SetStreamSource, [16] [0x30AC]
+-constexpr u32 kDeviceOffsetStreamStrides = 12904;      // SetStreamSource, u8[16], stride / 4 [0x30F0]
+-constexpr u32 kDeviceOffsetTextures = 12920;           // SetTexture, [kTextureFetchSlots] [0x3100]
+-constexpr u32 kDeviceOffsetPixelShader = 13068;        // SetPixelShader [0x3194]
+-constexpr u32 kDeviceOffsetVertexShader = 13072;       // SetVertexShader [0x3198]
++constexpr u32 kDeviceOffsetVertexDeclaration = 11820;  // SetVertexDeclaration [0x2E2C]
++constexpr u32 kDeviceOffsetIndexBuffer = 12436;        // SetIndices [0x3094]
++constexpr u32 kDeviceOffsetRenderTargets = 12440;      // SetRenderTarget, [4] [0x3098]
++constexpr u32 kDeviceOffsetDepthStencil = 12456;       // SetDepthStencilSurface [0x30A8]
++constexpr u32 kDeviceOffsetStreamSources = 12460;      // SetStreamSource, [16] [0x30AC]
++constexpr u32 kDeviceOffsetStreamStrides = 12528;      // SetStreamSource, u8[16], stride / 4 [0x30F0]
++constexpr u32 kDeviceOffsetTextures = 12544;           // SetTexture, [kTextureFetchSlots] [0x3100]
++constexpr u32 kDeviceOffsetPixelShader = 12692;        // SetPixelShader [0x3194]
++constexpr u32 kDeviceOffsetVertexShader = 12696;       // SetVertexShader [0x3198]
+ // In m_TessellatorPacket, which holds registers 0x2280 on: VGT_HOS_CNTL
+ // (tessellation mode in bits 0-1: 0 discrete, 1 continuous, 2 adaptive) and
+ // the float VGT_HOS_MAX_TESS_LEVEL / VGT_HOS_MIN_TESS_LEVEL.
+@@ -307,27 +307,27 @@
+ // predicated tiling (Z and render).
+ // sa2-nx: 13084 by the +376 of the fields around it (N&B 0x31A4); SA2 never
+ // tiles, and the renderer reads it only while tiling (PredicatedTile).
+-constexpr u32 kDeviceOffsetPredication = 13084;
++constexpr u32 kDeviceOffsetPredication = 12708;
+ // D3DCommandBuffer being recorded (BeginCommandBuffer sets, End clears).
+ // sa2-nx: SA2's AllocateInlineData (sub_8254D9A8) reads it (N&B 13516).
+-constexpr u32 kDeviceOffsetCommandBuffer = 13920;
++constexpr u32 kDeviceOffsetCommandBuffer = 13516;
+ // The leading part of the device the draw, clear and resolve paths read (up
+ // to and including kDeviceOffsetPredication); a copy of it stands in for the
+ // device when a recorded command buffer is replayed.
+-constexpr u32 kDeviceSnapshotSize = 13088;  // sa2-nx (N&B 0x31A8)
++constexpr u32 kDeviceSnapshotSize = 12712;  // sa2-nx (N&B 0x31A8)
+ static_assert(kDeviceOffsetVertexShader + 4 <= kDeviceSnapshotSize);
+ static_assert(kDeviceOffsetPredication + 4 <= kDeviceSnapshotSize);
+ // m_pRing the inline end of BeginVertices / BeginIndexedVertices restores.
+ // sa2-nx: SA2's BeginVertices (sub_82565758) stores it, and the game's 11
+ // inline ends load it (N&B 0x3484).
+-constexpr u32 kDeviceOffsetVerticesRingEnd = 13844;
++constexpr u32 kDeviceOffsetVerticesRingEnd = 13444;
+ // Swap bookkeeping (D3DDevice_Swap 0x82287590; SA2's sub_82558E98, which
+ // also sets the pending flag in SynchronizeToPresentationInterval sub_825589D8).
+-constexpr u32 kDeviceOffsetSwapCount = 16968;        // [0x40B0]
+-constexpr u32 kDeviceOffsetFenceTag = 11036;         // current fence tag [0x2A9C]
+-constexpr u32 kDeviceOffsetSwapFenceTag = 11056;     // fence tag at the last Swap [0x2AB0]
+-constexpr u32 kDeviceOffsetPresentFenceTag = 15344;  // fence tag of the last presented frame [0x3A5C]
+-constexpr u32 kDeviceOffsetSwapFlags = 11069;        // [0x2ABD]
++constexpr u32 kDeviceOffsetSwapCount = 16560;        // [0x40B0]
++constexpr u32 kDeviceOffsetFenceTag = 10908;         // current fence tag [0x2A9C]
++constexpr u32 kDeviceOffsetSwapFenceTag = 10928;     // fence tag at the last Swap [0x2AB0]
++constexpr u32 kDeviceOffsetPresentFenceTag = 14940;  // fence tag of the last presented frame [0x3A5C]
++constexpr u32 kDeviceOffsetSwapFlags = 10941;        // [0x2ABD]
+ constexpr u8 kSwapFlagPending = 0x10;
+ 
+ constexpr u32 kMaxStreams = 16;
+diff --git a/app/src/renut_engine/gpu/d3d/d3d_native.h b/app/src/renut_engine/gpu/d3d/d3d_native.h
+--- a/app/src/renut_engine/gpu/d3d/d3d_native.h
++++ b/app/src/renut_engine/gpu/d3d/d3d_native.h
+@@ -97,6 +97,7 @@
+ }
+ 
+ // Device fields used by more than one part of the runtime.
++// Dragon Burst (2026-10-27): Burst Limit's XDK 6683 is N&B's layout, the values in brackets (the numbers below).
+ // sa2-nx (2026-10-20): SA2's XDK (d3d.h). The public part (to 0x2AA4) is N&B's;
+ // the private fields are SA2's, N&B's value in brackets. Those marked "+N" are
+ // placed by the shift of the fields around them and not read from SA2's code:
+@@ -128,35 +129,35 @@
+ constexpr u32 BlendControl1 = 0x2958;
+ constexpr u32 BlendControl2 = 0x295C;
+ constexpr u32 BlendControl3 = 0x2960;
+-constexpr u32 FenceCompletion = 11024;     // -> the completed-fence word [0x2A90]
+-constexpr u32 FenceTag = 11036;            // the current fence [0x2A9C]
+-constexpr u32 CommandBufferTagMask = 11040;   // Common bits a recorded buffer tracks [0x2AA0] +128
+-constexpr u32 TilePredication = 11060;     // SetPredication / SetCommandBufferPredication args [0x2AB4] +128
+-constexpr u32 RunPredication = 11064;      // [0x2AB8] +128
+-constexpr u32 Flags = 11068;               // bytes 11068-11071, see below [0x2ABC]
+-constexpr u32 Flags1 = 11069;
+-constexpr u32 Flags2 = 11070;
+-constexpr u32 Flags3 = 11071;
+-constexpr u32 ScissorRect = 13052;         // SetScissorRect's RECT [0x3184] (SA2's Present)
+-constexpr u32 IndexBuffer = 12812;         // [0x3094]
+-constexpr u32 RenderTargets = 12816;       // [4] [0x3098]
+-constexpr u32 DepthStencil = 12832;        // [0x30A8]
+-constexpr u32 StreamSources = 12836;       // [16] [0x30AC]
+-constexpr u32 StreamStrides = 12904;       // u8[16], stride / 4 [0x30F0]
+-constexpr u32 Textures = 12920;            // [26] [0x3100]
+-constexpr u32 Predication = 13084;         // tile predication of the next draws, ~0 none [0x31A4] +376
+-constexpr u32 RunPredicationState = 13088; // [0x31A8] +376
+-constexpr u32 PredicationSet = 13092;      // 1 while SetPredication's mask is non-zero [0x31AC] +376
+-constexpr u32 TilingSurfaces = 13104;      // the 4 targets and depth BeginTiling bound [0x31B8] +376
+-constexpr u32 TileCount = 13124;           // [0x31CC] +376
+-constexpr u32 TileRects = 13128;           // D3DRECT[TileCount] [0x31D0] +376
+-constexpr u32 TileOrigins = 13368;         // per tile, x & ~31, y & ~31 [0x32C0] +376
+-constexpr u32 TilingExtent = 13556;        // widest and tallest tile edge [0x337C] +376
+-constexpr u32 CommandBuffer = 13920;       // the D3DCommandBuffer being recorded [0x34CC]
+-constexpr u32 SideBuffer = 17136;          // [0x4158] (sub_8255C808)
+-constexpr u32 AutoDepthStencil = 15228;    // InitializePresentationParameters' surfaces [0x39E8]
+-constexpr u32 AutoFrontBuffer = 15232;     // [0x39EC] (SA2's Present)
+-constexpr u32 AutoBackBuffer = 15236;      // [0x39F0] (SA2's Present)
++constexpr u32 FenceCompletion = 10896;     // -> the completed-fence word [0x2A90]
++constexpr u32 FenceTag = 10908;            // the current fence [0x2A9C]
++constexpr u32 CommandBufferTagMask = 10912;   // Common bits a recorded buffer tracks [0x2AA0] +128
++constexpr u32 TilePredication = 10932;     // SetPredication / SetCommandBufferPredication args [0x2AB4] +128
++constexpr u32 RunPredication = 10936;      // [0x2AB8] +128
++constexpr u32 Flags = 10940;               // bytes 11068-11071, see below [0x2ABC]
++constexpr u32 Flags1 = 10941;
++constexpr u32 Flags2 = 10942;
++constexpr u32 Flags3 = 10943;
++constexpr u32 ScissorRect = 12676;         // SetScissorRect's RECT [0x3184] (SA2's Present)
++constexpr u32 IndexBuffer = 12436;         // [0x3094]
++constexpr u32 RenderTargets = 12440;       // [4] [0x3098]
++constexpr u32 DepthStencil = 12456;        // [0x30A8]
++constexpr u32 StreamSources = 12460;       // [16] [0x30AC]
++constexpr u32 StreamStrides = 12528;       // u8[16], stride / 4 [0x30F0]
++constexpr u32 Textures = 12544;            // [26] [0x3100]
++constexpr u32 Predication = 12708;         // tile predication of the next draws, ~0 none [0x31A4] +376
++constexpr u32 RunPredicationState = 12712; // [0x31A8] +376
++constexpr u32 PredicationSet = 12716;      // 1 while SetPredication's mask is non-zero [0x31AC] +376
++constexpr u32 TilingSurfaces = 12728;      // the 4 targets and depth BeginTiling bound [0x31B8] +376
++constexpr u32 TileCount = 12748;           // [0x31CC] +376
++constexpr u32 TileRects = 12752;           // D3DRECT[TileCount] [0x31D0] +376
++constexpr u32 TileOrigins = 12992;         // per tile, x & ~31, y & ~31 [0x32C0] +376
++constexpr u32 TilingExtent = 13180;        // widest and tallest tile edge [0x337C] +376
++constexpr u32 CommandBuffer = 13516;       // the D3DCommandBuffer being recorded [0x34CC]
++constexpr u32 SideBuffer = 16728;          // [0x4158] (sub_8255C808)
++constexpr u32 AutoDepthStencil = 14824;    // InitializePresentationParameters' surfaces [0x39E8]
++constexpr u32 AutoFrontBuffer = 14828;     // [0x39EC] (SA2's Present)
++constexpr u32 AutoBackBuffer = 14832;      // [0x39F0] (SA2's Present)
+ }  // namespace off
+ 
+ // Flags (11068; N&B 0x2ABC) bits: 0x01 the draws that follow run in each tile's pass,
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/device.cpp b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -52,7 +52,7 @@
+ #include "renut_engine/gpu/guest/command_buffers.h"
+ #include "renut_engine/gpu/d3d/d3d.h"
+ #include "renut_engine/gpu/d3d/d3d_native.h"
+-#include "renut_engine/gpu/d3d/mgr_hook_map.h"
++#include "renut_engine/gpu/d3d/bl_hook_map.h"  // Dragon Burst: the Burst Limit's guards
+ #include "renut_engine/gpu/render/draw.h"
+ #include "renut_engine/gpu/guest/guest_memory.h"
+ #include "renut_engine/gpu/guest/guest_records.h"
+@@ -97,36 +97,36 @@
+ // and the hardware path sub_8255CDA0; N&B's in brackets.
+ // Byte whose 0x80 bit marks a device without GPU hardware (its device-type-2
+ // path sets it); D3D's code skips hardware work for it.
+-constexpr u32 kDeviceOffsetFlags = 11068;  // [10940]
++constexpr u32 kDeviceOffsetFlags = 10940;  // Dragon Burst: BL = N&B
+ constexpr u8 kDeviceFlagNoHardware = 0x80;
+ // Byte whose 0x2 bit makes CDevice::SetFence (0x82278528) write each fence's
+ // completion value itself instead of waiting for the GPU to. The title device
+ // runs without it once created: its fences complete on the render thread.
+-constexpr u32 kDeviceOffsetFlags2 = 11069;  // [10941]
++constexpr u32 kDeviceOffsetFlags2 = 10941;
+ constexpr u8 kDeviceFlagImmediateFences = 0x02;
+ // Pointer to the completed-fence word IsFencePending / BlockOnFence read.
+-constexpr u32 kDeviceOffsetFenceCompletion = 11024;  // [10896]
++constexpr u32 kDeviceOffsetFenceCompletion = 10896;
+ // Nonzero while a KickOff is in progress (BlockOnFence does not kick then).
+ // sa2-nx: the word SA2's CDevice::BlockOnFence (sub_826B42A8) tests [13232].
+-constexpr u32 kDeviceOffsetInKickOff = 13600;
++constexpr u32 kDeviceOffsetInKickOff = 13232;
+ // Side buffer (0x12C0 bytes) every device gets.
+-constexpr u32 kDeviceOffsetSideBuffer = 17136;  // [16728]
++constexpr u32 kDeviceOffsetSideBuffer = 16728;
+ constexpr u32 kSideBufferSize = 0x12C0;
+ // Set to -1 by the device-type-2 path.
+-constexpr u32 kDeviceOffsetsMinusOne[] = {21968, 21972, 15340};  // [21560, 21564, 14936]
++constexpr u32 kDeviceOffsetsMinusOne[] = {21556, 21560, 14936};  // Dragon Burst: BL (N&B - 4: 820B7230)
+ constexpr u32 kDeviceTypeNoHardware = 2;
+ // Copied from the global qword at 0x82F39B38 into every device.
+-constexpr u32 kDeviceOffsetGlobalQword = 11008;  // [10880]
+-constexpr u32 kGlobalQwordVa = 0x834FB7E0;  // [0x82F39B38]
++constexpr u32 kDeviceOffsetGlobalQword = 10880;
++constexpr u32 kGlobalQwordVa = 0x827252E8;  // Dragon Burst: BL (820F94C8)
+ // Hardware-path fields: two critical sections, QueryPerformanceFrequency and
+ // its reciprocal as floats, and 41 words set to -1.
+-constexpr u32 kDeviceOffsetCriticalSection0 = 15348;  // [14944]
+-constexpr u32 kDeviceOffsetCriticalSection1 = 15376;  // [14972]
+-constexpr u32 kDeviceOffsetPerfFrequency = 21996;  // [21588]
+-constexpr u32 kDeviceOffsetTitleMinusOne = 23380;
++constexpr u32 kDeviceOffsetCriticalSection0 = 14944;
++constexpr u32 kDeviceOffsetCriticalSection1 = 14972;
++constexpr u32 kDeviceOffsetPerfFrequency = 21584;  // Dragon Burst: BL (N&B - 4)
++constexpr u32 kDeviceOffsetTitleMinusOne = 21700;  // Dragon Burst: BL (820B7428)
+ // Import slot holding the address of the kernel's VdGlobalDevice variable.
+ // sa2-nx: SA2's (sub_8255CDA0 stores the title device there) [0x820007FC].
+-constexpr u32 kVdGlobalDeviceImportSlot = 0x820005F8;
++constexpr u32 kVdGlobalDeviceImportSlot = 0x820005C4;  // Dragon Burst: BL (820B72C8)
+ 
+ constexpr u32 kE_OUTOFMEMORY = 0x8007000Eu;
+ 
+@@ -870,7 +870,7 @@
+ // The frame goes to the render thread, which presents it; the game thread
+ // goes on with the next one, waiting only when it is more than
+ // render_thread::kMaxFramesAhead ahead.
+-constexpr u32 kSa2DeviceOffsetGammaRamp = 15408;  // sa2-nx: SA2's +0x3A9C (the +404 block)
++constexpr u32 kSa2DeviceOffsetGammaRamp = 15004;  // Dragon Burst: BL = N&B (Swap 820B64C0)  // sa2-nx: SA2's +0x3A9C (the +404 block)
+ 
+ // sa2-nx (2026-10-20): the SDK's core layout (system/xthread.cpp).
+ REXCVAR_DEFINE_BOOL(sa2_renut_core_layout, true, "SA2/Renderer",
+@@ -966,7 +966,7 @@
+     // The Xbox vblank handler advanced the latter. With no GPU interrupt, publish
+     // completion here, after this frame has consumed its buffers and presented.
+     if (completed_swap) {
+-      if (auto *displayed = GuestPtr<be_u32>(device_va + 16976))
++      if (auto *displayed = GuestPtr<be_u32>(device_va + 16568)  /* Dragon Burst: BL (VBlank 820B5CF8) */)
+         *displayed = completed_swap;
+     }
+     {
+@@ -1322,42 +1322,48 @@
+ //     first (sa2_renut_hooks.cpp).
+ //   - SA2's ring segment allocator (sub_826B45A8) rewinds the sink like the others.
+ 
+-REX_EXTERN(__imp__sub_826B2418);  // Direct3D_CreateDevice, the original
+-REX_EXTERN(__imp__sub_826C0C48);  // D3D::InitializePresentationParameters (CDevice*, D3DPRESENT_PARAMETERS*)
+-REX_EXTERN(__imp__sub_826C0278);  // D3D::InitializeApiState (CDevice*)
++// Dragon Burst (2026-10-27): Burst Limit (XDK 6683) has no Direct3D_CreateDevice of its own: LTCG inlined it into the
++// game's 0x820F92F8, which allocates the device with the game's allocator, sets the fields every device gets (global
++// qword, creation thread, side buffer, BehaviorFlags) and calls the hardware setup, 0x820B7230 (CDevice*,
++// D3DPRESENT_PARAMETERS*) -> 1 on success. That is the hook: what Sa2CreateDevice does after SA2's no-hardware device
++// (the sink, the fence block, immediate fences until the title device is set up) and the hardware path minus the GPU
++// (critical sections, VdGlobalDevice, the -1 words, the timer frequency), with the game's XenonGpu_Initialize,
++// InitializePresentationParameters and InitializeApiState in the hardware path's order. Left out: the real ring
++// (0x820AEAF0), 0x820B8DC0, 0x820A1FD0, the system command buffer, 0x820B9E40, VdRetrainEDRAM (0x820BE6C8),
++// 0x820A9A78 and the GPU interrupt callback. Addresses and evidence: docs/renut/HOOKMAP_BL.md.
++REX_EXTERN(__imp__sub_820B7670);  // XenonGpu_Initialize (CDevice*)
++REX_EXTERN(__imp__sub_820B6E38);  // InitializePresentationParameters (CDevice*, D3DPRESENT_PARAMETERS*)
++REX_EXTERN(__imp__sub_820B6B58);  // InitializeApiState (CDevice*)
+ 
+ namespace {
+ 
+-// HRESULT Direct3D_CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, void*, DWORD BehaviorFlags,
+-//     D3DPRESENT_PARAMETERS*, IDirect3DDevice9 **ppReturnedDeviceInterface) [sub_826B2418; N&B 0x8264DF28]
+-void Sa2CreateDevice(PPCContext &ctx, uint8_t *base) {
+-  // Hook addresses and layouts are specific to the user's MGR executable.
+-  // Refuse a different binary before substituting any device/GPU behavior.
+-  static const bool guest_code_matches = [base] {
+-    for (const auto &guard : mgr::kGuestCodeGuards) {
++constexpr u32 kBlDeviceOffsetSwapScratch = 10900;  // the interrupt / swap block (SynchronizeToPresentationInterval)
++constexpr u32 kBlDeviceOffsetFlags3 = 10942;       // 820B7268: ori 4
++
++bool BlGuestCodeMatches(uint8_t *base) {
++  static const bool matches = [base] {
++    for (const auto &guard : bl::kGuestCodeGuards) {
+       uint32_t hash = 2166136261u;
+       for (uint32_t i = 0; i < guard.bytes; ++i)
+         hash = (hash ^ base[guard.address + i]) * 16777619u;
+       if (hash != guard.fnv32) {
+-        RGPU_ERROR("MGR XDK hook validation failed: {} at {:#010x}; expected {:08x}, got {:08x}",
++        RGPU_ERROR("Burst Limit XDK hook validation failed: {} at {:#010x}; expected {:08x}, got {:08x}",
+                    guard.name, guard.address, guard.fnv32, hash);
+         return false;
+       }
+     }
+-    RGPU_INFO("MGR XDK 21173: all {} guest interface guards match", std::size(mgr::kGuestCodeGuards));
++    RGPU_INFO("Burst Limit XDK 6683: all {} guest interface guards match", std::size(bl::kGuestCodeGuards));
+     return true;
+   }();
+-  if (!guest_code_matches) {
+-    ctx.r3.u64 = 0x80004005u;
+-    return;
+-  }
+-  const u32 device_type = ctx.r4.u32;
+-  u32 behavior_flags = ctx.r6.u32;
+-  const u32 present_parameters = ctx.r7.u32;
+-  const u32 out_va = ctx.r8.u32;
+-  const bool title_device = device_type != kDeviceTypeNoHardware;
+-  if (!records::Init()) {
+-    ctx.r3.u64 = kE_OUTOFMEMORY;
++  return matches;
++}
++
++void BlHardwareDeviceSetup(PPCContext &ctx, uint8_t *base) {
++  const u32 device_va = ctx.r3.u32;
++  const u32 present_parameters = ctx.r4.u32;
++  native::Device d = native::DeviceAt(device_va);
++  if (!BlGuestCodeMatches(base) || !d || !records::Init()) {
++    ctx.r3.u64 = 0;
+     return;
+   }
+   if (!g_ring_sink)
+@@ -1366,65 +1372,71 @@
+     g_ring_data = records::AllocPhysicalBlock(kRingDataSize);
+   const u32 fence_va = records::AllocPhysicalBlock(0x80 + 0x20);
+   if (!g_ring_sink || !g_ring_data || !fence_va) {
+-    RGPU_ERROR("Direct3D_CreateDevice: guest allocation failed");
+-    ctx.r3.u64 = kE_OUTOFMEMORY;
++    RGPU_ERROR("Burst Limit device setup: guest allocation failed");
++    ctx.r3.u64 = 0;
+     return;
+   }
+   std::memset(GuestPtr<u8>(g_ring_sink), 0, kRingSinkSize);
+   std::memset(GuestPtr<u8>(fence_va), 0, 0x80 + 0x20);
+ 
+-  // SA2's own no-hardware device.
+-  ctx.r4.u64 = kDeviceTypeNoHardware;
+-  __imp__sub_826B2418(ctx, base);
+-  if (ctx.r3.u32 != 0)
+-    return;
+-  const u32 device_va = LoadGuestU32(out_va);
+-  native::Device d = native::DeviceAt(device_va);
+-  if (!d) {
+-    ctx.r3.u64 = kE_OUTOFMEMORY;
+-    return;
+-  }
+   u8 *bytes = d.bytes;
+-  // Its ring was the side buffer, marked out of memory (sub_8254D040): from here the sink. Fences complete as they
+-  // are written until the title device is set up.
++  // As SA2's no-hardware device: D3D's code skips the GPU work, the ring is the sink, and fences complete as they
++  // are written until the setup ends.
++  bytes[kDeviceOffsetFlags] |= kDeviceFlagNoHardware;
+   bytes[kDeviceOffsetFlags2] &= u8(~0x20);
+   bytes[kDeviceOffsetFlags2] |= kDeviceFlagImmediateFences;
++  bytes[kBlDeviceOffsetFlags3] |= 4;
+   WriteU32(bytes, kDeviceOffsetFenceCompletion, fence_va);
+-  WriteU32(bytes, 11028, fence_va + 0x80);  // the swap's scratch word (SynchronizeToPresentationInterval)
++  WriteU32(bytes, kBlDeviceOffsetSwapScratch, fence_va + 0x80);
+   native::RewindRing(d);
+ 
+-  if (title_device) {
+-    RtlInitializeCriticalSection(device_va + kDeviceOffsetCriticalSection0);
+-    RtlInitializeCriticalSection(device_va + kDeviceOffsetCriticalSection1);
+-    if (const u32 global = LoadGuestU32(kVdGlobalDeviceImportSlot))
+-      *GuestPtr<be_u32>(global) = device_va;
+-    if (!(behavior_flags & 0x100) && !(behavior_flags & 0x3F000000))
+-      behavior_flags |= 0xC000000;
+-    WriteU32(bytes, d3d::kDeviceOffsetBehaviorFlags, behavior_flags);
+-    WriteU32(bytes, kDeviceOffsetsMinusOne[0], 0xFFFFFFFFu);
+-    WriteU32(bytes, kDeviceOffsetsMinusOne[1], 0xFFFFFFFFu);
+-    const float frequency = float(KeQueryPerformanceFrequency());
+-    d.SetF(kDeviceOffsetPerfFrequency, frequency);
+-    d.SetF(kDeviceOffsetPerfFrequency + 4, frequency > 0.0f ? 1.0f / frequency : 0.0f);
+-    if (present_parameters) {
+-      ctx.r3.u64 = device_va;
+-      ctx.r4.u64 = present_parameters;
+-      __imp__sub_826C0C48(ctx, base);
+-      if (!ctx.r3.u32) {
+-        RGPU_ERROR("Direct3D_CreateDevice: InitializePresentationParameters failed");
+-        ctx.r3.u64 = kE_OUTOFMEMORY;
+-        return;
+-      }
+-    }
+-    ctx.r3.u64 = device_va;
+-    __imp__sub_826C0278(ctx, base);
+-    native::RewindRing(d);
+-    // From here the title device's fences complete on the render thread (KickFence).
+-    bytes[kDeviceOffsetFlags2] &= u8(~kDeviceFlagImmediateFences);
+-    Video::SetGuestDevice(device_va);
++  RtlInitializeCriticalSection(device_va + kDeviceOffsetCriticalSection0);
++  RtlInitializeCriticalSection(device_va + kDeviceOffsetCriticalSection1);
++  d.SetW(16712, 0);
++  if (const u32 global = LoadGuestU32(kVdGlobalDeviceImportSlot))
++    *GuestPtr<be_u32>(global) = device_va;
++  WriteU32(bytes, kDeviceOffsetsMinusOne[0], 0xFFFFFFFFu);
++  WriteU32(bytes, kDeviceOffsetsMinusOne[1], 0xFFFFFFFFu);
++
++  ctx.r3.u64 = device_va;
++  __imp__sub_820B7670(ctx, base);
++  ctx.r3.u64 = device_va;
++  ctx.r4.u64 = present_parameters;
++  __imp__sub_820B6E38(ctx, base);
++  if (!ctx.r3.u32) {
++    RGPU_ERROR("Burst Limit device setup: InitializePresentationParameters failed");
++    ctx.r3.u64 = 0;
++    return;
+   }
+-  RGPU_INFO("Guest D3D device (type {}) created at {:#010x}", device_type, device_va);
+-  ctx.r3.u64 = 0;  // S_OK
++  ctx.r3.u64 = device_va;
++  __imp__sub_820B6B58(ctx, base);
++
++  const float frequency = float(KeQueryPerformanceFrequency());
++  d.SetF(kDeviceOffsetPerfFrequency, frequency);
++  d.SetF(kDeviceOffsetPerfFrequency + 4, frequency > 0.0f ? 1.0f / frequency : 0.0f);
++  for (u32 i = 0; i < 41; ++i)
++    d.SetW(kDeviceOffsetTitleMinusOne + i * 4, 0xFFFFFFFFu);
++
++  native::RewindRing(d);
++  bytes[kDeviceOffsetFlags2] &= u8(~kDeviceFlagImmediateFences);
++  Video::SetGuestDevice(device_va);
++  RGPU_INFO("Guest D3D device (Burst Limit) set up at {:#010x}", device_va);
++  // The hooks of the Burst Limit map (docs/renut/HOOKMAP_BL.md) installed in this build (strong sub_X over the
++  // recompiled weak ones), each active with the Renut; the glue's (Dragon Burst renut_glue.cpp) after them.
++  RGPU_INFO("Renut hooks installed (Burst Limit XDK 6683): device 820B7230 820AE868 820B5F90 820AE690 820AE430 "
++            "820AD570 820AD898 820ADAA0 820ADC38 820AEAF0 820B64C0 820AE790 820B10E8; draw 820A8A20 820A8E10 "
++            "820A8538 820BF910 820BB348 820A9C38; shader 820A27B8 820A24E8 820F9CF8 820A2C78; resource 820A9268; "
++            "glue 822A2E50 (frame handshake) + VBlank 820B5CF8 at 60 Hz");
++  ctx.r3.u64 = 1;
++}
++
++// The interrupt packet writer (0x820AE868: CDevice*, PRING, Flags, pCallback, Context -> the ring's new end), what
++// the game's inlined D3DDevice_InsertCallback (0x820EA188) and D3D's EndTiling (0x820BAA48) call. The callback runs
++// when the render thread reaches this point; nothing is written to the ring.
++void BlInsertCallbackPacket(PPCContext &ctx, uint8_t * /*base*/) {
++  const u32 device = ctx.r3.u32, ring = ctx.r4.u32;
++  D3DDevice_InsertCallback_hook(device, 0, ctx.r6.u32, ctx.r7.u32);
++  ctx.r3.u64 = ring;
+ }
+ 
+ // SA2's ring segment allocator (sub_826B45A8 (CDevice*, DWORD Dwords): KickOffSegment, BeginRingBig and Swap call it
+@@ -1448,19 +1460,26 @@
+ 
+ }  // namespace
+ 
+-BANJO_RENUT_HOOK_RAW(sub_826B2418) {  // Direct3D_CreateDevice [0x8264DF28]
+-  Sa2CreateDevice(ctx, base);
+-}
+-BANJO_RENUT_HOOK(sub_826B59B0, D3DDevice_InsertCallback_hook);  // D3DDevice_InsertCallback [0x821FB688]
+-BANJO_RENUT_HOOK(sub_826B3050, Sa2SynchronizeToPresentationInterval_hook);  // D3D_SynchronizeToPresentationInterval [0x8228A748]
+-BANJO_RENUT_HOOK(sub_826B5688, KickOff_hook);  // D3D_CDevice_KickOff [0x82210AB0]
+-BANJO_RENUT_HOOK(sub_826B5348, KickOffSegment_hook);  // D3D_CDevice_KickOffSegment [0x822106C8]
+-BANJO_RENUT_HOOK(sub_826B58C0, BeginRingBig_hook);  // D3D_CDevice_BeginRingBig [0x821F7C18]
+-BANJO_RENUT_HOOK(sub_826B4078, RingBufferDeviceAllocate_hook);  // D3D_RingBufferDeviceAllocate [0x8222D3E0]
+-BANJO_RENUT_HOOK(sub_826B44C0, AllocateInlineData_hook);  // D3D_CDevice_AllocateInlineData [0x8222D240]
+-BANJO_RENUT_HOOK(sub_826B45A8, Sa2NewSegment_hook);  // SA2's ring segment allocator
+-BANJO_RENUT_HOOK(sub_826B5A08, D3DDevice_SetRingBufferParameters_hook);  // D3DDevice_SetRingBufferParameters [0x82657508]
+-BANJO_RENUT_HOOK_SHARED(sub_826B3510, D3DDevice_Swap_hook);  // D3DDevice_Swap [0x82287590]
+-BANJO_RENUT_HOOK(sub_826B42A8, BlockOnFence_hook);  // D3D_CDevice_BlockOnFence [0x8228F558]
+-BANJO_RENUT_HOOK(sub_826B1C88, CBlocker_Check_hook);  // D3D_CBlocker_Check [0x8264DCD0]
+-BANJO_RENUT_HOOK(sub_826B57C8, IsFencePending_hook);  // D3DDevice_IsFencePending [0x8228F650]
++// Dragon Burst (2026-10-27): the Burst Limit's addresses (docs/renut/HOOKMAP_BL.md; MGR's in brackets).
++BANJO_RENUT_HOOK_RAW(sub_820B7230) {  // hardware device setup [MGR Direct3D_CreateDevice sub_826B2418]
++  BlHardwareDeviceSetup(ctx, base);
++}
++BANJO_RENUT_HOOK_RAW(sub_820AE868) {  // the interrupt packet writer [MGR D3DDevice_InsertCallback sub_826B59B0]
++  BlInsertCallbackPacket(ctx, base);
++}
++BANJO_RENUT_HOOK(sub_820B5F90, Sa2SynchronizeToPresentationInterval_hook);  // [sub_826B3050]
++BANJO_RENUT_HOOK(sub_820AE690, KickOff_hook);  // CDevice::KickOff [sub_826B5688]
++BANJO_RENUT_HOOK(sub_820AE430, KickOffSegment_hook);  // [sub_826B5348]
++BANJO_RENUT_HOOK(sub_820AD570, BeginRingBig_hook);  // [sub_826B58C0]
++BANJO_RENUT_HOOK(sub_820AD898, RingBufferDeviceAllocate_hook);  // [sub_826B4078]
++BANJO_RENUT_HOOK(sub_820ADAA0, AllocateInlineData_hook);  // [sub_826B44C0]
++BANJO_RENUT_HOOK(sub_820ADC38, Sa2NewSegment_hook);  // NewSegment [sub_826B45A8]
++// The ring setup (0x820AEAF0), SetRingBufferParameters' internal equivalent: only the device teardown (0x820B7450)
++// reaches it once the setup above is the hook.
++BANJO_RENUT_HOOK(sub_820AEAF0, D3DDevice_SetRingBufferParameters_hook);  // [sub_826B5A08]
++BANJO_RENUT_HOOK_SHARED(sub_820B64C0, D3DDevice_Swap_hook);  // D3DDevice_Swap [sub_826B3510]
++BANJO_RENUT_HOOK(sub_820AE790, BlockOnFence_hook);  // (CDevice*, Fence, Type): no NoKick [sub_826B42A8]
++// Shared: the game's v6 GPU-wait hook (burstlimit_patches.cpp, patches/game/0006) hands over to it.
++BANJO_RENUT_HOOK_SHARED(sub_820B10E8, CBlocker_Check_hook);  // [sub_826B1C88]
++// Not in this game: D3DDevice_IsFencePending [sub_826B57C8] (never used) and MGR's EngineSwapProgress [sub_826B2FC0].
++[[maybe_unused]] static auto *const kBlUnusedIsFencePending = &IsFencePending_hook;
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/draw.cpp b/app/src/renut_engine/gpu/d3d/hooks/draw.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/draw.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/draw.cpp
+@@ -599,28 +599,28 @@
+ 
+ }  // namespace
+ 
+-BANJO_RENUT_HOOK_SHARED(sub_826BC928, D3DDevice_DrawVertices_hook);  // D3DDevice_DrawVertices [0x8222C7A0]
+-BANJO_RENUT_HOOK_SHARED(sub_826BCD40, D3DDevice_DrawIndexedVertices_hook);  // D3DDevice_DrawIndexedVertices [0x826567C8]
++BANJO_RENUT_HOOK_SHARED(sub_820A8A20, D3DDevice_DrawVertices_hook);  // Dragon Burst: BL [MGR sub_826BC928]  // D3DDevice_DrawVertices [0x8222C7A0]
++BANJO_RENUT_HOOK_SHARED(sub_820A8E10, D3DDevice_DrawIndexedVertices_hook);  // [MGR sub_826BCD40]  // D3DDevice_DrawIndexedVertices [0x826567C8]
+ // MGR XDK 21173 has no separately linked DrawVerticesUP wrapper in this image.
+ // Its BeginVertices entry is intercepted below; do not install a hook at an SA2 address.
+-BANJO_RENUT_HOOK(sub_826BC468, D3DDevice_BeginVertices_hook);  // D3DDevice_BeginVertices [0x8222CC50]
++BANJO_RENUT_HOOK(sub_820A8538, D3DDevice_BeginVertices_hook);  // [MGR sub_826BC468]; BL's DrawVerticesUP 820A89D8 calls it  // D3DDevice_BeginVertices [0x8222CC50]
+ 
+ // MGR's SetViewport, SetScissorRect and target setters reach this writer.
+ // Its untiled path writes the three registers directly to the ring, without
+ // keeping the WindowPacket shadow reNut reads. Mirror those exact values.
+-BANJO_RENUT_HOOK_RAW(sub_826B5FC8) {
++BANJO_RENUT_HOOK_RAW(sub_820A9C38) {  // Dragon Burst: BL WindowScissor [MGR sub_826B5FC8]
+   const u32 device = ctx.r3.u32;
+   const u32 words[] = {0u,
+       ((ctx.r5.u32 << 16) & 0x3FFF0000u) | (ctx.r4.u32 & 0x3FFFu),
+       ((ctx.r7.u32 << 16) & 0x3FFF0000u) | (ctx.r6.u32 & 0x3FFFu)};
+   if (auto *packet = GuestPtr<be_u32>(device + native::off::WindowOffset))
+     for (u32 i = 0; i < 3; ++i) packet[i] = words[i];
+-  __imp__sub_826B5FC8(ctx, base);
++  __imp__sub_820A9C38(ctx, base);
+ }
+ 
+ // void D3DDevice_ClearF(D3DDevice*, DWORD Flags, const D3DRECT *pRect, const D3DVECTOR4 *pColor, float Z,
+ //     DWORD Stencil) [sub_826BC260; N&B 0x822811A0]: Z in f1 (r7's slot), Stencil in r8.
+-BANJO_RENUT_HOOK_RAW(sub_826BC260) {
++BANJO_RENUT_HOOK_RAW(sub_820BF910) {  // Dragon Burst: BL ClearF [MGR sub_826BC260]
+   const u32 device = ctx.r3.u32, flags = ctx.r4.u32, rect_va = ctx.r5.u32, color_va = ctx.r6.u32;
+   ClearRect rect;
+   const bool has_rect = rect_va && ReadRect(rect_va, rect);
+@@ -628,7 +628,7 @@
+   if (color_va)
+     ReadVector4(color_va, color);
+   QueueHostClear(device, flags, has_rect ? &rect : nullptr, color, float(ctx.f1.f64), ctx.r8.u32);
+-  __imp__sub_826BC260(ctx, base);
++  __imp__sub_820BF910(ctx, base);
+ }
+ 
+ // void D3DDevice_Resolve(D3DDevice*, DWORD Flags, const D3DRECT *pSourceRect, D3DBaseTexture *pDestTexture,
+@@ -637,7 +637,7 @@
+ // ClearStencil and pParameters in the caller's argument words at +92 and +100 (sub_826BB0D0 reads them there). Every
+ // resolve of SA2 comes here: the game's, the Present's and Direct3D's own (sub_825645A0, the core, has no other
+ // caller).
+-BANJO_RENUT_HOOK_RAW(sub_826BB0D0) {
++BANJO_RENUT_HOOK_RAW(sub_820BB348) {  // Dragon Burst: BL Resolve [MGR sub_826BB0D0]
+   const u32 device = ctx.r3.u32, flags = ctx.r4.u32, rect_va = ctx.r5.u32, dest_texture = ctx.r6.u32;
+   const u32 point_va = ctx.r7.u32, dest_level = ctx.r8.u32, dest_slice = ctx.r9.u32, color_va = ctx.r10.u32;
+   const u32 clear_stencil = LoadU32(ctx.r1.u32 + 92);
+@@ -650,5 +650,5 @@
+   }
+   QueueHostResolve(device, flags, has_rect ? &rect : nullptr, dest_texture, dest_x, dest_y, dest_level, dest_slice,
+                    color_va, float(ctx.f1.f64), clear_stencil);
+-  __imp__sub_826BB0D0(ctx, base);
++  __imp__sub_820BB348(ctx, base);
+ }
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/resource.cpp b/app/src/renut_engine/gpu/d3d/hooks/resource.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/resource.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/resource.cpp
+@@ -47,7 +47,7 @@
+ // N&B's XMemFree (0x822399D8), its own allocator (not D3D code): for the
+ // memory of resources N&B's code allocated itself. sa2-nx: SA2's XMemFree
+ // (sub_82715A90, what SA2's D3DResource_Destroy calls).
+-REX_IMPORT(__imp__sub_82715A90, GameXMemFree, void(u32, u32));
++REX_IMPORT(__imp__sub_82506F18, GameXMemFree, void(u32, u32));  // Dragon Burst: BL's XMemFree (820A9268 calls it)
+ // The kernel's physical memory, as XPhysicalAlloc / XPhysicalFree use it.
+ REX_IMPORT(__imp__MmAllocatePhysicalMemoryEx, MmAllocatePhysicalMemoryEx,
+            u32(u32, u32, u32, u32, u32, u32));
+@@ -1693,7 +1693,7 @@
+ // BlockOnFence: the render thread is then past it) and frees it.
+ 
+ // void D3DResource_Destroy(D3DResource*) [sub_826AAF80; N&B 0x822084F0]
+-BANJO_RENUT_HOOK_RAW(sub_826AAF80) {
++BANJO_RENUT_HOOK_RAW(sub_820A9268) {  // Dragon Burst: BL [MGR sub_826AAF80]
+   const u32 resource = ctx.r3.u32;
+   render_thread::Queue([resource] {
+     ReleaseHostSurfaceLocked(resource);
+@@ -1701,5 +1701,5 @@
+     ReleaseGuestShaderLocked(resource);
+     ReleaseGuestDeclarationLocked(resource);
+   });
+-  __imp__sub_826AAF80(ctx, base);
++  __imp__sub_820A9268(ctx, base);
+ }
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+@@ -464,6 +464,16 @@
+   for (u32 i = 0; i < 64 && u32(elements[i].Stream) != 0xFF && u32(elements[i].Type) != kDeclTypeUnused; ++i)
+     declaration->elements.push_back(elements[i]);
+   BuildDeclarationLayout(*declaration);
++  {  // Dragon Burst (diagnostic)
++    static uint32_t logged = 0;
++    if (logged++ < 8)
++      RGPU_INFO("[db-decl] registered {:08X}: {} elements, used mask {:X}", declaration_va,
++                declaration->elements.size(), declaration->layout.used_mask);
++    if (logged <= 8)
++      for (const GuestVertexElement &e : declaration->elements)
++        RGPU_INFO("[db-decl]   stream {} offset {} type {:08X} method {} usage {} index {}", u32(u16(e.Stream)),
++                  u32(u16(e.Offset)), u32(e.Type), u32(e.Method), u32(e.Usage), u32(e.UsageIndex));
++  }
+   render_thread::Queue([declaration_va, declaration] {
+     ForgetVertexDeclarationLocked(declaration_va);
+     g_guest_declarations[declaration_va] = std::make_unique<VertexDeclarationRecord>(*declaration);
+@@ -473,23 +483,41 @@
+ }  // namespace
+ 
+ // void XGRegisterVertexShader(D3DVertexShader*, void *pPhysicalPart) [sub_826ACD00; N&B 0x8264E7B8]
+-BANJO_RENUT_HOOK_RAW(sub_826ACD00) {
++BANJO_RENUT_HOOK_RAW(sub_820A27B8) {  // Dragon Burst: BL [MGR sub_826ACD00]
+   const u32 shader = ctx.r3.u32, physical = ctx.r4.u32;
+-  __imp__sub_826ACD00(ctx, base);
++  __imp__sub_820A27B8(ctx, base);
+   RegisterGuestShader(shader, physical, false);
+ }
+ 
+-// void XGRegisterPixelShader(D3DPixelShader*, void *pPhysicalPart) [sub_826AC3D8; N&B 0x8264E670]
+-BANJO_RENUT_HOOK_RAW(sub_826AC3D8) {
+-  const u32 shader = ctx.r3.u32, physical = ctx.r4.u32;
+-  __imp__sub_826AC3D8(ctx, base);
+-  RegisterGuestShader(shader, physical, true);
++// Dragon Burst (2026-10-27): Burst Limit has no XGRegisterPixelShader of its own: LTCG inlined it into
++// D3DDevice_CreatePixelShader (0x820A24E8: the shader object it returns, the physical part at +0x18) and into the
++// game's material loader (0x820F9CF8: the record in r3, its pixel shader at +28 and the physical part at +36). Both
++// run their code first, then the host side is keyed by the container as above (docs/renut/HOOKMAP_BL.md, line 25).
++void RegisterGuestPixelShader(u32 shader) {
++  const auto *object = shader ? GuestPtr<const be_u32>(shader) : nullptr;
++  if (!object || (u32(object[0]) & 0xF) != u32(d3d::ResourceType::PixelShader))
++    return;
++  RegisterGuestShader(shader, u32(object[6]), true);
++}
++
++// D3DPixelShader *D3DDevice_CreatePixelShader(const DWORD *pFunction) [MGR sub_8255E568]
++BANJO_RENUT_HOOK_RAW(sub_820A24E8) {
++  __imp__sub_820A24E8(ctx, base);
++  RegisterGuestPixelShader(ctx.r3.u32);
++}
++
++// The game's material loader (registers its vertex shaders through XGRegisterVertexShader, hooked above).
++BANJO_RENUT_HOOK_RAW(sub_820F9CF8) {
++  const u32 record = ctx.r3.u32;
++  __imp__sub_820F9CF8(ctx, base);
++  if (const auto *fields = record ? GuestPtr<const be_u32>(record) : nullptr)
++    RegisterGuestPixelShader(u32(fields[7]));
+ }
+ 
+ // D3DVertexDeclaration *D3DDevice_CreateVertexDeclaration(const D3DVERTEXELEMENT9*) [sub_826AC938; N&B 0x8264EA90]
+-BANJO_RENUT_HOOK_RAW(sub_826AC938) {
++BANJO_RENUT_HOOK_RAW(sub_820A2C78) {  // Dragon Burst: BL [MGR sub_826AC938]
+   const u32 elements_va = ctx.r3.u32;
+-  __imp__sub_826AC938(ctx, base);
++  __imp__sub_820A2C78(ctx, base);
+   const u32 declaration = ctx.r3.u32;
+   if (const auto *elements = declaration ? GuestPtr<const GuestVertexElement>(elements_va) : nullptr)
+     RegisterGuestDeclaration(declaration, elements);
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -4266,6 +4266,11 @@
+       g_last_declaration_va = g_last_declaration ? declaration_va : 0;
+     }
+     declaration = g_last_declaration_va == declaration_va ? g_last_declaration : nullptr;
++    if (!declaration) {  // Dragon Burst (diagnostic): a declaration the hooks never registered
++      static uint32_t logged = 0;
++      if (logged++ < 16)
++        RGPU_WARN("[db-decl] vs {:016X}: vertex declaration {:08X} not registered", vs ? vs->hash : 0, declaration_va);
++    }
+   } else if (vs && vs->bound_declaration) {
+     declaration = vs->bound_declaration.get();
+     shader_strides = vs->bound_strides;
+@@ -4275,6 +4280,13 @@
+   } else {
+     declaration = &NoDeclaration();
+   }
++  {  // Dragon Burst (diagnostic): the declaration each vertex shader draws with, once
++    static std::unordered_set<uint64_t> seen;
++    if (vs && seen.size() < 24 && seen.insert(vs->hash).second)
++      RGPU_INFO("[db-decl] vs {:016X}: declaration {:08X} ({}), used mask {:X}", vs->hash, declaration_va,
++                declaration ? (declaration == &NoDeclaration() ? "none" : "found") : "missing",
++                declaration ? declaration->layout.used_mask : 0);
++  }
+   // banjo-nx (2026-10-19, render-thread proposal 16): the records this draw reads next, fetched while the code between
+   // runs (the shader entries' first lines, the declaration): first touches were most of the draw's sampled loads.
+   if (vs && vs->entry) {
+@@ -4344,7 +4356,7 @@
+   const ChainHint &chain = g_chain_hint;
+   Targets targets;
+   bool targets_reused = false;
+-  if (targets_reuse_on && chain.seq && chain.seq == g_targets_reuse.seq + 1 && !ChainChanged(chain, 12816, 12835) &&
++  if (targets_reuse_on && chain.seq && chain.seq == g_targets_reuse.seq + 1 && !ChainChanged(chain, 12440, 12459) &&
+       g_targets_reuse.epoch == SurfaceEpochLocked()) {
+     targets_reused = true;
+     for (u32 i = 0; targets_reused && i <= d3d::kMaxRenderTargets; ++i) {
+@@ -4479,7 +4491,7 @@
+   };
+   static TexturesReuse treuse;
+   bool textures_reused = targets_reuse_on && chain.seq && chain.seq == treuse.seq + 1 && treuse.mask == texture_mask &&
+-                         !ChainChanged(chain, 1152, 1775) && !ChainChanged(chain, 12920, 13023) &&
++                         !ChainChanged(chain, 1152, 1775) && !ChainChanged(chain, 12544, 12647) &&
+                          treuse.frame == TextureFrameLocked() && treuse.epoch == g_texture_epoch &&
+                          treuse.depth_epoch == g_depth_epoch && treuse.depth == targets.depth;
+   for (u32 r = 0; textures_reused && r < d3d::kTextureFetchSlots; ++r) {
+diff --git a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+--- a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
++++ b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+@@ -54,7 +54,7 @@
+ namespace {
+ 
+ using Clock = std::chrono::steady_clock;
+-constexpr uint32_t kDeviceOffsetPresentationInterval = 14000;  // the device's copy of D3DPRESENT_PARAMETERS + 52
++constexpr uint32_t kDeviceOffsetPresentationInterval = 13596;  // Dragon Burst: BL (N&B)  // the device's copy of D3DPRESENT_PARAMETERS + 52
+ constexpr Clock::duration kRefresh = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / 60.0));
+ 
+ // Refreshes per frame for D3DPRESENT_INTERVAL_*: as SA2's SynchronizeToPresentationInterval (sub_825589D8) maps them.

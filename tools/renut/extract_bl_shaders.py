@@ -1,11 +1,15 @@
-"""Shader containers of Burst Limit from the player's LONG2DATA_US.CPK, for XenosRecomp (Renut M1).
+"""Shader containers of Burst Limit from the player's LONG2DATA_US.CPK and default.xex, for XenosRecomp (Renut M1).
 
-    python3 -I tools/renut/extract_bl_shaders.py <LONG2DATA_US.CPK> <out dir>
+    python3 -I tools/renut/extract_bl_shaders.py <LONG2DATA_US.CPK> <out dir> [default.xex]
 
 The game's shader library is /XBOX360.NSH inside the CPK (docs/renut/AVALIACAO_M1.md, section 3). Two differences
 from the MGR reader (mgr-nx-deko tools/installer_probe): file offsets count from ContentOffset, not TocOffset, and the
 CRILAYLA compression has its 8 magic bytes zeroed. Each Xenos container (magic 0x102A1100/01) is written once as
 vs_/ps_<sha256 prefix>.bin, like extract_mgr_cpk_shaders.py. The output is game data: never commit or distribute it.
+
+The executable holds 14 more (the engine's own: the boot screens draw with them, Renut M1 on the Odin captured 9 of
+them at boot). default.xex is XEX2 with normal encryption (AES-128-CBC, the session key decrypted with the retail key)
+and basic compression (blocks of data then zeros), read here with the cryptography package.
 """
 import hashlib
 import os
@@ -127,10 +131,42 @@ def containers(data):
         p += 1
 
 
+XEX_RETAIL_KEY = bytes.fromhex('20B185A59D28FDC340583FBB0896BF91')
+
+
+def xex_image(path):
+    """The loaded PE image of a retail XEX2 with basic compression."""
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    x = open(path, 'rb').read()
+    assert x[:4] == b'XEX2', 'not a XEX2'
+    data_at, security = struct.unpack('>I', x[8:12])[0], struct.unpack('>I', x[16:20])[0]
+    fmt = None
+    for i in range(struct.unpack('>I', x[20:24])[0]):
+        key, value = struct.unpack('>II', x[24 + i * 8:32 + i * 8])
+        if key == 0x3FF:  # file format info
+            fmt = value
+    info_size, encryption, compression = struct.unpack('>IHH', x[fmt:fmt + 8])
+    if encryption != 1 or compression != 1:
+        sys.exit(f'extract_bl_shaders: {path}: encryption {encryption} compression {compression} not handled')
+    ecb = Cipher(algorithms.AES(XEX_RETAIL_KEY), modes.ECB()).decryptor()
+    session = ecb.update(x[security + 0x150:security + 0x160]) + ecb.finalize()
+    body = x[data_at:]
+    cbc = Cipher(algorithms.AES(session), modes.CBC(bytes(16))).decryptor()
+    plain = cbc.update(body[:len(body) // 16 * 16]) + cbc.finalize()
+    image, p = bytearray(), 0
+    for i in range((info_size - 8) // 8):
+        size, zeros = struct.unpack('>II', x[fmt + 8 + i * 8:fmt + 16 + i * 8])
+        image += plain[p:p + size] + bytes(zeros)
+        p += size
+    if image[:2] != b'MZ':
+        sys.exit(f'extract_bl_shaders: {path} did not decrypt to a PE image')
+    return bytes(image)
+
+
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         sys.exit(__doc__)
-    cpk, out = sys.argv[1:]
+    cpk, out = sys.argv[1:3]
     with open(cpk, 'rb') as f:
         files = cpk_files(f)
         off, fsize, esize = files['/XBOX360.NSH']
@@ -140,8 +176,14 @@ def main():
     if len(nsh) != esize or nsh[:4] != b'NSXR':
         sys.exit(f'extract_bl_shaders: XBOX360.NSH came out wrong ({len(nsh)} bytes of {esize}, {nsh[:4]!r})')
     os.makedirs(out, exist_ok=True)
+    found = containers(nsh)
+    xex_count = 0
+    if len(sys.argv) == 4:
+        from_xex = containers(xex_image(sys.argv[3]))
+        xex_count = len(from_xex)
+        found += from_xex
     seen, kinds = set(), {'vs': 0, 'ps': 0}
-    for c in containers(nsh):
+    for c in found:
         digest = hashlib.sha256(c).hexdigest()
         if digest in seen:
             continue
@@ -150,7 +192,8 @@ def main():
         kinds[stage] += 1
         with open(os.path.join(out, f'{stage}_{digest[:16]}.bin'), 'wb') as w:
             w.write(c)
-    print(f"extract_bl_shaders: XBOX360.NSH {fsize} -> {len(nsh)} bytes, {kinds['vs']} VS + {kinds['ps']} PS -> {out}")
+    print(f"extract_bl_shaders: XBOX360.NSH {fsize} -> {len(nsh)} bytes, {xex_count} from the XEX, "
+          f"{kinds['vs']} VS + {kinds['ps']} PS -> {out}")
 
 
 if __name__ == '__main__':
