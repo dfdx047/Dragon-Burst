@@ -1,0 +1,191 @@
+Android: build the Burst Limit Recompiled v7.3 sources
+
+Guards Windows-only and PC-only code (keyboard glyphs, lobby early connect,
+latency probe, Xbox LIVE sign-in, waitable timers) and gives the frame timer a
+POSIX clock and sleep, keeping v7.3's GPU-wait sleep.
+
+diff --git a/src/burstlimit_buttons.cpp b/src/burstlimit_buttons.cpp
+--- a/src/burstlimit_buttons.cpp
++++ b/src/burstlimit_buttons.cpp
+@@ -1020,7 +1020,12 @@
+     auto* input =
+         runtime ? static_cast<rex::input::InputSystem*>(runtime->input_system()) : nullptr;
+     if (input) {
++#ifdef __ANDROID__
++      // Dragon Burst: sem teclado como comando no SDK do Android.
++      const bool keys = false;
++#else
+       const bool keys = input->LastInputWasKeyboard();
++#endif
+       int style =
+           keys ? kKeyboard : StyleFromGamepadType(input->GetGamepadType(input->GetLastUsedUser()));
+       // A pad of unknown type after the keyboard: Xbox (as for unknown pads).
+@@ -1040,7 +1045,9 @@
+ rex::ui::ButtonGlyphs Glyphs(int style) {
+   return style == kPlayStation    ? rex::ui::ButtonGlyphs::kPlayStation
+          : style == kSwitch       ? rex::ui::ButtonGlyphs::kNintendo
++#ifndef __ANDROID__
+          : IsKeyboardStyle(style) ? rex::ui::ButtonGlyphs::kKeyboard
++#endif
+                                   : rex::ui::ButtonGlyphs::kXbox;
+ }
+ 
+@@ -1203,9 +1210,14 @@
+     }
+     g_in_battle.store(in_battle);
+     constexpr uint16_t kPadA = 0x1000, kPadB = 0x2000, kPadStart = 0x0010;
++#ifndef __ANDROID__
+     rex::input::mnk::SetMenuKeyButtons(
+         fighting ? uint16_t(0) : in_battle ? kPadA : uint16_t(kPadA | kPadStart),
+         fighting ? kPadStart : kPadB);
++#else
++    (void)fighting;
++    (void)kPadA, (void)kPadB, (void)kPadStart;
++#endif
+   }
+   // A key bound anew: the keyboard icons are drawn again (and the textures
+   // showing them get the new ones).
+diff --git a/src/burstlimit_launcher.cpp b/src/burstlimit_launcher.cpp
+--- a/src/burstlimit_launcher.cpp
++++ b/src/burstlimit_launcher.cpp
+@@ -47,7 +47,9 @@
+ #include <rex/ui/imgui_dialog.h>
+ #include <rex/ui/overlay/overlay_text.h>
+ #include <rex/ui/overlay/quick_menu.h>
++#if __has_include(<rex/ui/ui_watchdog.h>)  // Dragon Burst: o SDK do Android nao tem o vigia da UI do PC
+ #include <rex/ui/ui_watchdog.h>
++#endif
+ 
+ #include "burstlimit_menuart.h"
+ 
+@@ -555,7 +557,9 @@
+       if (update_thread_downloads_) {
+         // A download / install (Play is refused meanwhile, only Quit ends it):
+         // it uses this screen, so wait for it.
++#if __has_include(<rex/ui/ui_watchdog.h>)
+         rex::ui::UIThreadPhase phase("closing the start screen (update download)");
++#endif
+         update_thread_.join();
+       } else {
+         update_thread_.detach();
+diff --git a/src/burstlimit_online.cpp b/src/burstlimit_online.cpp
+--- a/src/burstlimit_online.cpp
++++ b/src/burstlimit_online.cpp
+@@ -197,7 +197,9 @@
+ // lobby mode the lobby connection starts in the background, so the online
+ // menu finds it ready (issue #22). Nothing in the LAN / VPN mode.
+ void BurstLimitOnlineConnectEarly() {
++#ifndef __ANDROID__  // Dragon Burst: o lobby pela internet ainda nao existe no Android
+   rex::net::online::ConnectLobbyEarly();
++#endif
+ }
+ 
+ void BurstLimitOnlineGameNotice(const std::string& text, double seconds) {
+diff --git a/src/burstlimit_patches.cpp b/src/burstlimit_patches.cpp
+--- a/src/burstlimit_patches.cpp
++++ b/src/burstlimit_patches.cpp
+@@ -9,6 +9,9 @@
+ #include <string_view>
+ #include <utility>
+ #include <vector>
++#ifndef _WIN32
++#include <time.h>
++#endif
+ 
+ #ifdef _WIN32
+ #include <windows.h>
+@@ -463,7 +466,12 @@
+     } else if (rate == "display") {
+       // The monitor's refresh rate, locked to its vblanks with present_vsync
+       // (SDK frame_pacing.h).
++#ifdef __ANDROID__
++      // Dragon Burst: sem o vblank preso ao ecra do PC (c4db5a3); a app nunca pede "display".
++      vblank_rate = 60.0;
++#else
+       vblank_rate = rex::graphics::kGuestVblankRateDisplay;
++#endif
+     } else if (rate == "unlocked") {
+       vblank_rate = 1000.0;
+     }
+@@ -715,6 +723,7 @@
+ // +8 frames, +12 seconds, capped at 999:59:59), jumping to its end
+ // (0x8221933C): real seconds instead.
+ void BurstLimitPlayTime(PPCRegister& r31) {
++#ifndef __ANDROID__  // Dragon Burst: a sonda de latencia do PC nao existe no SDK do Android
+   if (rex::perf::IsLatencyWindowOpen()) {
+     // Latency probe (latency_log): the frame player 1's action changes after
+     // a press. Player table 0x84239C10, fighter = *(player + 44), action at
+@@ -736,6 +745,7 @@
+       last_action = action;
+     }
+   }
++#endif
+   static std::chrono::steady_clock::time_point last{};
+   static double pending = 0.0;
+   const auto now = std::chrono::steady_clock::now();
+@@ -796,10 +806,30 @@
+   uint32_t start = 0;  // its time base when the wait started (new wait)
+   int64_t since_us = 0;
+   int64_t last_us = 0;
++#ifdef _WIN32
+   HANDLE timer = nullptr;
++#endif
+ };
+ thread_local GpuWaitState t_gpu_wait;
+ 
++#ifndef _WIN32
++// Dragon Burst (Android): o mesmo com o relogio monotonico e clock_nanosleep (resolucao de
++// microssegundos no Linux, sem timers do Windows).
++int64_t NowUs() {
++  return std::chrono::duration_cast<std::chrono::microseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
++void SleepMicroseconds(GpuWaitState&, int64_t microseconds) {
++  timespec ts{0, long(microseconds * 1000)};
++  clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, nullptr);
++}
++
++inline void YieldProcessor() {
++  __asm__ __volatile__("yield");
++}
++#else
+ int64_t NowUs() {
+   static const int64_t frequency = [] {
+     LARGE_INTEGER value;
+@@ -830,12 +860,20 @@
+     SwitchToThread();
+   }
+ }
++#endif
+ 
+ }  // namespace
+ 
+ // burstlimit_native.cpp: with the native renderer the waiting thread runs the
+ // GPU's commands itself and sleeps until a vblank or a kick.
++#ifdef __ANDROID__
++// Dragon Burst: sem o renderizador nativo do PC (burstlimit_native.cpp fica fora do build).
++bool BurstLimitNativeGpuWait() {
++  return false;
++}
++#else
+ bool BurstLimitNativeGpuWait();
++#endif
+ 
+ REX_EXTERN(__imp__sub_820B10E8);
+ extern "C" REX_FUNC(sub_820B10E8) {
+diff --git a/src/burstlimit_signin.cpp b/src/burstlimit_signin.cpp
+--- a/src/burstlimit_signin.cpp
++++ b/src/burstlimit_signin.cpp
+@@ -34,5 +34,10 @@
+   if (!kernel || !kernel->user_profile()) {
+     return;
+   }
++#ifndef __ANDROID__
+   kernel->user_profile()->set_signed_in_user(uint32_t(pad));
++#else
++  // Dragon Burst: no Android o jogador 1 e sempre o utilizador 0 (comando ou toque);
++  // o SDK daqui nao tem o perfil movel do PC (40f162f).
++#endif
+ }

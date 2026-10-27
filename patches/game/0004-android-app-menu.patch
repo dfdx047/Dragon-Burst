@@ -1,6 +1,8 @@
+diff --git a/src/burstlimit_app.h b/src/burstlimit_app.h
+index 48a9358294bb3b72060e9e279f64dced778c7ed3..d543454658b57b46f46553b2599b46c7994ecd5d 100644
 --- a/src/burstlimit_app.h
 +++ b/src/burstlimit_app.h
-@@ -193,6 +193,13 @@
+@@ -261,6 +261,13 @@ class BurstlimitApp : public rex::ReXApp {
  
    // The settings menu (F1 or Back + Start on the controller).
    void OnConfigureQuickMenu(rex::ui::QuickMenuConfig& menu) override {
@@ -14,7 +16,7 @@
      using Item = rex::ui::QuickMenuItem;
      using Choices = std::vector<std::pair<std::string, std::string>>;
      auto toggle = [](std::string label, std::string cvar, std::string help) {
-@@ -605,39 +612,6 @@
+@@ -816,39 +823,6 @@ class BurstlimitApp : public rex::ReXApp {
          "(Super Saiyan Goku, Final Form Frieza, Perfect Cell...) - online and offline. Online, "
          "the host's setting is used by both players."));
  
@@ -54,7 +56,7 @@
  
      // Online rankings + your ranked line (burstlimit_ranked.cpp).
      BurstLimitRankedMenu(menu);
-@@ -645,6 +619,7 @@
+@@ -856,6 +830,7 @@ class BurstlimitApp : public rex::ReXApp {
      // Export / import of the save (burstlimit_saves.cpp).
      BurstLimitSavesMenu(menu);
    }

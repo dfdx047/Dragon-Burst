@@ -1,5 +1,5 @@
 diff --git a/src/burstlimit_camera.cpp b/src/burstlimit_camera.cpp
-index 29006c7e47cc1d1389a8aa7c73f1ec5bbfa0e5df..1ac328ef860ad62ff8d7422c92a91a437f743bec 100644
+index 063ade52e67160f44aa8a6b77b7e2bb09a7d72eb..6f1b603a2bb4317cc27219643fe59fa975edd903 100644
 --- a/src/burstlimit_camera.cpp
 +++ b/src/burstlimit_camera.cpp
 @@ -22,6 +22,7 @@
@@ -10,7 +10,7 @@ index 29006c7e47cc1d1389a8aa7c73f1ec5bbfa0e5df..1ac328ef860ad62ff8d7422c92a91a43
  #include <rex/ppc/context.h>
  #include <rex/runtime.h>
  #include <rex/ui/overlay/quick_menu.h>
-@@ -519,8 +520,20 @@ void UpdateFreeCamera(rex::memory::Memory* memory) {
+@@ -529,8 +530,20 @@ void UpdateFreeCamera(rex::memory::Memory* memory) {
  // Mid-asm hook in the main loop (sub_822197D0, 0x822198F8), once per game
  // tick, right before the task scheduler runs the frame's update and drawing
  // tasks (0x8221993C). Also where the freeze is applied.

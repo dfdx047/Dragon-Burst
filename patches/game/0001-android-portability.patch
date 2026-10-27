@@ -1,5 +1,5 @@
 diff --git a/src/burstlimit_app.h b/src/burstlimit_app.h
-index bafeb1c73b8059c0781911e7a983939989db862e..9d7ba72ed26b5d91279a6e4ae0d0a0fd489b3dde 100644
+index 2f3001b77a471a5dd8f00e29cbeb388ce53d55e8..48a9358294bb3b72060e9e279f64dced778c7ed3 100644
 --- a/src/burstlimit_app.h
 +++ b/src/burstlimit_app.h
 @@ -1,5 +1,6 @@
@@ -21,8 +21,8 @@ index bafeb1c73b8059c0781911e7a983939989db862e..9d7ba72ed26b5d91279a6e4ae0d0a0fd
 +#include <rex/platform.h>
  
  #include <rex/cvar.h>
- #include <rex/rex_app.h>
-@@ -157,11 +163,11 @@ class BurstlimitApp : public rex::ReXApp {
+ #include <rex/logging.h>
+@@ -204,11 +210,11 @@ class BurstlimitApp : public rex::ReXApp {
            [this](std::function<void()> function) {
              app_context().CallInUIThreadDeferred(std::move(function));
            },
@@ -36,7 +36,7 @@ index bafeb1c73b8059c0781911e7a983939989db862e..9d7ba72ed26b5d91279a6e4ae0d0a0fd
          [this, defaults, resume](std::filesystem::path root) {
            rex::PathConfig paths = defaults;
            paths.game_data_root = std::move(root);
-@@ -599,6 +605,40 @@ class BurstlimitApp : public rex::ReXApp {
+@@ -810,6 +816,40 @@ class BurstlimitApp : public rex::ReXApp {
          "(Super Saiyan Goku, Final Form Frieza, Perfect Cell...) - online and offline. Online, "
          "the host's setting is used by both players."));
  
@@ -77,7 +77,7 @@ index bafeb1c73b8059c0781911e7a983939989db862e..9d7ba72ed26b5d91279a6e4ae0d0a0fd
      // Online rankings + your ranked line (burstlimit_ranked.cpp).
      BurstLimitRankedMenu(menu);
  
-@@ -607,31 +647,34 @@ class BurstlimitApp : public rex::ReXApp {
+@@ -818,31 +858,34 @@ class BurstlimitApp : public rex::ReXApp {
    }
  
    static std::filesystem::path ExeDirectory() {
@@ -154,7 +154,7 @@ index 0f280c6d787d496c49b926208d73a041ac6ca2ef..313009fe5e2c2689fc1cb8214334f80b
 +
 +#endif  // _WIN32
 diff --git a/src/burstlimit_install.cpp b/src/burstlimit_install.cpp
-index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb4a79da64 100644
+index 8138fe9877ef2a7488ff2dfa456871c1732e0f28..6dc78d28ed13244ff1a6d2586003992654c48477 100644
 --- a/src/burstlimit_install.cpp
 +++ b/src/burstlimit_install.cpp
 @@ -14,6 +14,7 @@
@@ -182,9 +182,9 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
  
  #include <imgui.h>
  
-@@ -40,8 +48,13 @@
- // burstlimit_buttons.cpp: the button_icons style now (0 Xbox, 1 PlayStation, 2 Switch).
+@@ -41,8 +49,13 @@
  int BurstLimitButtonStyleNow();
+ rex::ui::ButtonGlyphs BurstLimitGlyphsForStyle(int style);
  
 +#ifdef _WIN32
  #pragma comment(lib, "bcrypt.lib")
@@ -196,7 +196,7 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
  
  REXCVAR_DEFINE_STRING(install_iso, "", "Setup",
                        "First start without the game files: install from this disc image "
-@@ -53,13 +66,87 @@ namespace {
+@@ -54,13 +67,87 @@ namespace {
  // recompilation was made from.
  constexpr char kUsaXexSha1[] = "aec598f88cf51181fc377b148e0b1ad30db4485c";
  
@@ -284,7 +284,7 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
    static constexpr char kHex[] = "0123456789abcdef";
    std::string hex;
    for (uint8_t byte : digest) {
-@@ -367,7 +454,11 @@ class Installer final : public rex::ui::ImGuiDialog {
+@@ -363,7 +450,11 @@ class Installer final : public rex::ui::ImGuiDialog {
      if (activated == 0) {
        defer_([this] { ChooseImage(); });
      } else if (activated == 1) {
@@ -296,7 +296,7 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
      }
    }
  
-@@ -380,6 +471,12 @@ class Installer final : public rex::ui::ImGuiDialog {
+@@ -376,6 +467,12 @@ class Installer final : public rex::ui::ImGuiDialog {
      if (choosing_ || state_ == State::kWorking) {
        return;
      }
@@ -309,7 +309,7 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
      choosing_ = true;
      wchar_t file[MAX_PATH * 4] = {};
      OPENFILENAMEW dialog = {};
-@@ -395,6 +492,7 @@ class Installer final : public rex::ui::ImGuiDialog {
+@@ -391,6 +488,7 @@ class Installer final : public rex::ui::ImGuiDialog {
      if (picked) {
        Start(std::filesystem::path(file));
      }
@@ -317,7 +317,7 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
    }
  
    void Start(const std::filesystem::path& image) {
-@@ -466,6 +564,7 @@ class Installer final : public rex::ui::ImGuiDialog {
+@@ -462,6 +560,7 @@ class Installer final : public rex::ui::ImGuiDialog {
        return;
      }
  
@@ -325,7 +325,7 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
      HANDLE source = CreateFileW(image.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                                  OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
      if (source == INVALID_HANDLE_VALUE) {
-@@ -517,6 +616,58 @@ class Installer final : public rex::ui::ImGuiDialog {
+@@ -513,6 +612,58 @@ class Installer final : public rex::ui::ImGuiDialog {
        }
      }
      CloseHandle(source);
@@ -385,7 +385,7 @@ index 243b113fe6a1fe8c5b1839547546bae7ff340d66..2899933296785353014572a6ade10dfb
        return;
      }
 diff --git a/src/burstlimit_launcher.cpp b/src/burstlimit_launcher.cpp
-index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07835dc3b5 100644
+index a92e4ee00971fcd36a54fc288cc128f7ecabe2ac..a105dd4d848fa661fb454294c50c2c6dc22afa00 100644
 --- a/src/burstlimit_launcher.cpp
 +++ b/src/burstlimit_launcher.cpp
 @@ -29,15 +29,19 @@
@@ -408,7 +408,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  #include <rex/logging.h>
  #include <rex/net/online.h>
  #include <rex/ui/imgui_dialog.h>
-@@ -46,10 +50,27 @@
+@@ -47,10 +51,27 @@
  
  #include "burstlimit_menuart.h"
  
@@ -438,7 +438,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
                      "Show the start screen (Play, mods, settings, updates, who's online) before "
                      "the game starts");
  REXCVAR_DEFINE_STRING(
-@@ -93,6 +114,7 @@ void KeyCommand(std::string_view args) {
+@@ -95,6 +116,7 @@ void KeyCommand(std::string_view args) {
  
  // GET over WinHTTP (http / https, redirects followed). The body goes to `sink`
  // piece by piece with the Content-Length (0 when unknown); false = stop.
@@ -446,7 +446,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  bool HttpGet(const std::wstring& url, int timeout_ms,
               const std::function<bool(const char* data, size_t size, uint64_t total)>& sink) {
    URL_COMPONENTS parts = {};
-@@ -167,6 +189,18 @@ bool HttpGet(const std::wstring& url, int timeout_ms,
+@@ -176,6 +198,18 @@ bool HttpGet(const std::wstring& url, int timeout_ms,
    return ok;
  }
  
@@ -465,7 +465,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  // A small text answer (JSON), or empty.
  std::string HttpGetText(const std::wstring& url, int timeout_ms) {
    std::string body;
-@@ -177,6 +211,7 @@ std::string HttpGetText(const std::wstring& url, int timeout_ms) {
+@@ -186,6 +220,7 @@ std::string HttpGetText(const std::wstring& url, int timeout_ms) {
    return ok ? body : std::string();
  }
  
@@ -473,7 +473,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  std::wstring Widen(const std::string& text) {
    if (text.empty()) {
      return {};
-@@ -186,7 +221,14 @@ std::wstring Widen(const std::string& text) {
+@@ -195,7 +230,14 @@ std::wstring Widen(const std::string& text) {
    MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), out.data(), size);
    return out;
  }
@@ -488,7 +488,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  std::string Narrow(const fs::path& path) {
    const std::wstring& wide = path.native();
    if (wide.empty()) {
-@@ -198,6 +240,11 @@ std::string Narrow(const fs::path& path) {
+@@ -207,6 +249,11 @@ std::string Narrow(const fs::path& path) {
    WideCharToMultiByte(CP_UTF8, 0, wide.data(), int(wide.size()), out.data(), size, nullptr, nullptr);
    return out;
  }
@@ -500,7 +500,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  
  std::string UrlEncode(const std::string& text) {
    static constexpr char kHex[] = "0123456789ABCDEF";
-@@ -241,11 +288,18 @@ bool ParseVersion(const std::string& text, std::array<int, 3>& version) {
+@@ -250,11 +297,18 @@ bool ParseVersion(const std::string& text, std::array<int, 3>& version) {
    return false;
  }
  
@@ -519,7 +519,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  fs::path ExeDirectory() {
    wchar_t exe_path[MAX_PATH] = {};
    const DWORD length = GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
-@@ -254,6 +308,12 @@ fs::path ExeDirectory() {
+@@ -263,6 +317,12 @@ fs::path ExeDirectory() {
    }
    return fs::path(exe_path).parent_path();
  }
@@ -532,7 +532,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  
  std::string Lower(std::string text) {
    for (char& c : text) {
-@@ -341,16 +401,32 @@ std::string InstallUpdate(const std::vector<uint8_t>& zip, const fs::path& exe_d
+@@ -350,16 +410,32 @@ std::string InstallUpdate(const std::vector<uint8_t>& zip, const fs::path& exe_d
        std::error_code old_ec;
        fs::remove(old, old_ec);
        // Running files can be renamed, not overwritten.
@@ -565,7 +565,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
      ++replaced;
    }
    fs::remove_all(staging, ec);
-@@ -360,6 +436,7 @@ std::string InstallUpdate(const std::vector<uint8_t>& zip, const fs::path& exe_d
+@@ -369,6 +445,7 @@ std::string InstallUpdate(const std::vector<uint8_t>& zip, const fs::path& exe_d
  }
  
  // Starts the (new) exe with the same command line and ends this one.
@@ -573,7 +573,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  void Restart() {
    wchar_t exe_path[MAX_PATH] = {};
    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
-@@ -377,6 +454,12 @@ void Restart() {
+@@ -386,6 +463,12 @@ void Restart() {
    }
    ExitProcess(0);
  }
@@ -586,7 +586,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
  
  struct RoomInfo {
    std::string host;
-@@ -724,7 +807,11 @@ class StartScreen final : public rex::ui::ImGuiDialog {
+@@ -741,7 +824,11 @@ class StartScreen final : public rex::ui::ImGuiDialog {
          break;
        }
        case Action::kQuit:
@@ -598,7 +598,7 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
        case Action::kMod: {
          BurstLimitPlayMenuSound(1);
          mods_[row.index].second = !mods_[row.index].second;
-@@ -741,7 +828,9 @@ class StartScreen final : public rex::ui::ImGuiDialog {
+@@ -758,7 +845,9 @@ class StartScreen final : public rex::ui::ImGuiDialog {
          const fs::path folder = ExeDirectory() / "mods";
          std::error_code ec;
          fs::create_directories(folder, ec);
@@ -609,11 +609,11 @@ index b795f794c5e8271ca0644de8b8545b79d5dcd13a..a43486df52c0bb42e8fd9104f67c9d07
        }
        case Action::kBack:
 diff --git a/src/burstlimit_menusound.cpp b/src/burstlimit_menusound.cpp
-index 37c5906e1289041ffb77b1824361da276ef2745c..4a8b9c90419303e1dd89b4de689f535848a0bcf6 100644
+index 63f195862917f41705697e3e56686cc6662b40dc..49fff2b2509d26620eaebb23ceded8757189d11f 100644
 --- a/src/burstlimit_menusound.cpp
 +++ b/src/burstlimit_menusound.cpp
-@@ -19,15 +19,23 @@
- #include <thread>
+@@ -22,8 +22,14 @@
+ #include <unordered_map>
  #include <vector>
  
 +#ifdef _WIN32
@@ -627,8 +627,9 @@ index 37c5906e1289041ffb77b1824361da276ef2745c..4a8b9c90419303e1dd89b4de689f5358
  
  #include <rex/cvar.h>
  #include <rex/logging.h>
- 
+@@ -31,7 +37,9 @@
  #include "burstlimit_cpk.h"
+ #include "burstlimit_gamesound.h"
  
 +#ifdef _WIN32
  #pragma comment(lib, "winmm.lib")
@@ -636,7 +637,7 @@ index 37c5906e1289041ffb77b1824361da276ef2745c..4a8b9c90419303e1dd89b4de689f5358
  
  REXCVAR_DEFINE_BOOL(menu_sounds, true, "Patches",
                      "The game's menu sounds in the start screen and the settings menu");
-@@ -285,9 +293,41 @@ void BurstLimitPlayMenuSound(int sound) {
+@@ -449,9 +457,41 @@ void BurstLimitPlayMenuSound(int sound) {
    std::lock_guard<std::mutex> lock(g_mutex);
    const std::vector<uint8_t>& wav = g_wavs[size_t(sound)];
    if (!wav.empty()) {
@@ -679,10 +680,10 @@ index 37c5906e1289041ffb77b1824361da276ef2745c..4a8b9c90419303e1dd89b4de689f5358
    }
  }
 diff --git a/src/burstlimit_patches.cpp b/src/burstlimit_patches.cpp
-index 2410fa7129d2e1ebb394648e58bbb3cac969d0db..73cb55958eaa98bc0987f94e4e2d44721c25e425 100644
+index f8973dafa3296af0762ff325c8a68cd17c6cd453..32c4f07cdec6d2589ac06cdafd2fca956f688215 100644
 --- a/src/burstlimit_patches.cpp
 +++ b/src/burstlimit_patches.cpp
-@@ -9,7 +9,9 @@
+@@ -10,7 +10,9 @@
  #include <utility>
  #include <vector>
  
@@ -692,7 +693,7 @@ index 2410fa7129d2e1ebb394648e58bbb3cac969d0db..73cb55958eaa98bc0987f94e4e2d4472
  
  #include <rex/cvar.h>
  #include <rex/graphics/draw_overrides.h>
-@@ -200,11 +202,13 @@ struct WindowSizeCvarCallback {
+@@ -227,11 +229,13 @@ struct WindowSizeCvarCallback {
          width = height = 0;
        }
        // In real pixels: window_width / window_height are in Windows' scaled pixels.
@@ -707,7 +708,7 @@ index 2410fa7129d2e1ebb394648e58bbb3cac969d0db..73cb55958eaa98bc0987f94e4e2d4472
        rex::cvar::SetFlagByName("window_height", std::to_string(height));
      });
 diff --git a/src/burstlimit_saves.cpp b/src/burstlimit_saves.cpp
-index 635196813a845a9098102c584818067ca83e37ab..41cef665e748076d69173ec94264621d79baa1ef 100644
+index 33572a5d2bee40a8d614957c8c1c0972bed208d8..1a5aec4169795556e1b81652dd7cac449982a83c 100644
 --- a/src/burstlimit_saves.cpp
 +++ b/src/burstlimit_saves.cpp
 @@ -33,8 +33,12 @@
@@ -723,7 +724,7 @@ index 635196813a845a9098102c584818067ca83e37ab..41cef665e748076d69173ec94264621d
  
  #include <fmt/format.h>
  
-@@ -123,7 +127,11 @@ std::filesystem::path HeaderFilePath() {
+@@ -126,7 +130,11 @@ std::filesystem::path HeaderFilePath() {
  std::string LocalTime(const char* format) {
    const std::time_t now = std::time(nullptr);
    std::tm local{};
@@ -735,7 +736,7 @@ index 635196813a845a9098102c584818067ca83e37ab..41cef665e748076d69173ec94264621d
    char text[64];
    std::strftime(text, sizeof(text), format, &local);
    return text;
-@@ -134,7 +142,7 @@ std::string ShortName(const std::filesystem::path& path) {
+@@ -137,7 +145,7 @@ std::string ShortName(const std::filesystem::path& path) {
    std::error_code error;
    auto relative = std::filesystem::relative(path, g_exe_directory, error);
    const std::filesystem::path& shown =
@@ -744,7 +745,7 @@ index 635196813a845a9098102c584818067ca83e37ab..41cef665e748076d69173ec94264621d
    return reinterpret_cast<const char*>(shown.u8string().c_str());
  }
  
-@@ -180,7 +188,12 @@ bool WriteWholeFile(const std::filesystem::path& path, const std::vector<uint8_t
+@@ -183,7 +191,12 @@ bool WriteWholeFile(const std::filesystem::path& path, const std::vector<uint8_t
        return false;
      }
    }
@@ -757,7 +758,7 @@ index 635196813a845a9098102c584818067ca83e37ab..41cef665e748076d69173ec94264621d
      std::filesystem::remove(temp, error);
      return false;
    }
-@@ -287,7 +300,11 @@ struct ZipEntry {
+@@ -290,7 +303,11 @@ struct ZipEntry {
  std::vector<uint8_t> MakeZip(const std::vector<ZipEntry>& entries) {
    const std::time_t now = std::time(nullptr);
    std::tm local{};
@@ -769,7 +770,7 @@ index 635196813a845a9098102c584818067ca83e37ab..41cef665e748076d69173ec94264621d
    const uint32_t dos_time = uint32_t(local.tm_hour << 11 | local.tm_min << 5 | local.tm_sec / 2);
    const uint32_t dos_date =
        uint32_t((local.tm_year - 80) << 9 | (local.tm_mon + 1) << 5 | local.tm_mday);
-@@ -638,12 +655,18 @@ std::filesystem::path FreeName(const std::string& stem) {
+@@ -641,12 +658,18 @@ std::filesystem::path FreeName(const std::string& stem) {
  void OpenSavesFolder(const std::filesystem::path& select) {
    std::error_code error;
    std::filesystem::create_directories(SavesFolder(), error);

@@ -1,0 +1,30 @@
+Dragon Burst 0187: "Recovered stale physical page protection" logged 16 times, then every 4096
+(Burst Limit fights: ~20 per second, the log file stopped at ~500 KB without the perf lines).
+
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 0cbe6d77f5b041fd625bd804d48030368d894597..a31e022767c61c6b883903ab451b66c3afbcdae5 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -743,10 +743,18 @@ bool Memory::AccessViolationCallback(std::unique_lock<std::recursive_mutex> glob
+           reinterpret_cast<uintptr_t>(host_address) & ~(uintptr_t(host_page_size - 1));
+       if (rex::memory::Protect(reinterpret_cast<void*>(page_base), host_page_size,
+                                rex::memory::PageAccess::kReadWrite, nullptr)) {
+-        REXSYS_WARN(
+-            "Recovered stale physical page protection for guest {:08X} (host {:016X}, "
+-            "guest_protect {:08X})",
+-            virtual_address, static_cast<uint64_t>(page_base), guest_protect);
++        // Dragon Burst (0187): no Burst Limit isto acontece ~20 vezes por segundo nas lutas e
++        // enchia o log (o ficheiro parava aos ~500 KB, sem as linhas de desempenho). As
++        // primeiras 16 com o endereco; depois uma linha a cada 4096, com a contagem.
++        static std::atomic<uint64_t> recovered_count{0};
++        const uint64_t n = recovered_count.fetch_add(1, std::memory_order_relaxed) + 1;
++        if (n <= 16 || (n % 4096) == 0) {
++          REXSYS_WARN(
++              "Recovered stale physical page protection for guest {:08X} (host {:016X}, "
++              "guest_protect {:08X}), {} so far{}",
++              virtual_address, static_cast<uint64_t>(page_base), guest_protect, n,
++              n == 16 ? " (next ones counted only, one line every 4096)" : "");
++        }
+         return true;
+       }
+     }

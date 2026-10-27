@@ -1,8 +1,8 @@
 diff --git a/src/burstlimit_slots.cpp b/src/burstlimit_slots.cpp
-index 26c12ebb664fb8fa421afceb9bddaed6c8118efe..afe98d064d23acdf16f0a105a59f5ca96037ed28 100644
+index f96aa48c91d1e9b541746bc97200f29c49759cfb..c7e0ffa15000b346ea432f94c0dc97f49bb70144 100644
 --- a/src/burstlimit_slots.cpp
 +++ b/src/burstlimit_slots.cpp
-@@ -1427,8 +1427,9 @@ std::string BurstLimitSlotsArtKey() {
+@@ -1713,8 +1713,9 @@ std::string BurstLimitSlotsArtKey() {
        std::error_code ec;
        const std::filesystem::path file(std::u8string(path->begin(), path->end()));
        const auto size = std::filesystem::file_size(file, ec);

@@ -35,11 +35,21 @@ if [ "$HEAD" != "$BL_COMMIT" ]; then
 fi
 
 echo "== SDK (thirdparty/rexglue-sdk)"
-git -C "$BL" submodule update --init thirdparty/rexglue-sdk
+if [ ! -d "$SDK/.git" ] && [ ! -f "$SDK/.git" ]; then
+  git -C "$BL" submodule update --init thirdparty/rexglue-sdk
+fi
+# O BL v6+ aponta o submodulo para um SDK com o renderizador nativo de PC (D3D12); o
+# Android fica na base do SDK unico (SDK_COMMIT), contra a qual os patches sao escritos.
 SDK_HEAD="$(git -C "$SDK" rev-parse HEAD)"
 if [ "$SDK_HEAD" != "$SDK_COMMIT" ]; then
-  echo "ERRO: SDK em $SDK_HEAD, esperado $SDK_COMMIT (ver tools/versions.env)." >&2
-  exit 1
+  if [ -f "$SDK/.dragonburst-patches" ] || [ -n "$(git -C "$SDK" status --porcelain --untracked-files=no)" ]; then
+    echo "ERRO: SDK em $SDK_HEAD (esperado $SDK_COMMIT) e tem alteracoes." >&2
+    echo "  Para recomecar do zero: rm -rf external/burstlimit && bash tools/setup-external.sh" >&2
+    exit 1
+  fi
+  echo "== SDK: checkout $SDK_COMMIT"
+  git -C "$SDK" fetch origin
+  git -C "$SDK" -c advice.detachedHead=false checkout "$SDK_COMMIT"
 fi
 
 # Submodulos do SDK que o build Android usa (moltenvk, tracy e catch2 ficam de fora:

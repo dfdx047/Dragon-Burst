@@ -127,6 +127,16 @@ set(BL_SOURCES
     ${BL_ROOT}/src/burstlimit_saves.cpp
     ${BL_ROOT}/src/burstlimit_slots.cpp
     ${BL_ROOT}/src/burstlimit_stages.cpp
+    # v7.3: Drama on/off, Exit Game, regras das salas online, entrar com qualquer
+    # comando, quick fight (testes) e widescreen (projecao Hor+; SDK 0186).
+    # Fora no Android: burstlimit_native*.cpp (renderizador nativo D3D12 do PC) e
+    # burstlimit_achievements.cpp (Media Foundation / janelas do Windows).
+    ${BL_ROOT}/src/burstlimit_drama.cpp
+    ${BL_ROOT}/src/burstlimit_exit.cpp
+    ${BL_ROOT}/src/burstlimit_online_rules.cpp
+    ${BL_ROOT}/src/burstlimit_quickfight.cpp
+    ${BL_ROOT}/src/burstlimit_signin.cpp
+    ${BL_ROOT}/src/burstlimit_widescreen.cpp
 )
 
 # Codigo recompilado do default.xex (define GENERATED_SOURCES, caminhos absolutos).
@@ -159,6 +169,8 @@ target_sources(main PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/android_http.cpp"
     # Vigia: pilhas de todas as threads em logs/watchdog.txt se o jogo encravar.
     "${CMAKE_CURRENT_LIST_DIR}/watchdog.cpp"
+    # O que o BL v7.3 chama de burstlimit_achievements.cpp (fora do build).
+    "${CMAKE_CURRENT_LIST_DIR}/bl_v7_stubs.cpp"
 )
 
 # Rastreio das funcoes D3D candidatas (optxbox d3dmap + tools/d3d_trace_gen.py).
