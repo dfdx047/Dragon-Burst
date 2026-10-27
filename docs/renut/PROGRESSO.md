@@ -106,9 +106,16 @@ do log: `[renut] 10.0 s` / `dbz3: perf`):
    os literais como imediatos (`BANJO_RENUT_LITERALS_CBUF=0`); os deltas do snapshot desligados
    (`sa2_renut_snapshot_deltas`). Visto no log: formatos usados 2/6/18/19/20, todos suportados; as duas texturas
    ligadas em cada draw (nenhuma nula). Hipotese: a rampa lida devolve ~0 (conteudo da DXT1 256x256: destiling ou
-   cache) ou o c8 chega com outro valor; proximo passo: `show_texture` da rampa (DD93A0DC) e as constantes c0-c8 no
-   drawlog.
+   cache) ou o c8 chega com outro valor.
+   Depois do commit do M3 (22:20-22:35): a rampa (DD93A0DC, `show_texture`) e uma faixa horizontal de cinzentos, igual
+   em todas as linhas; a textura de cor (512x512 DXT5, DD939A9C) e em blocos lisos, com o cabelo branco. Logo a cor do
+   cabelo sai da coluna da rampa, que o alfa da `tex0` (`tex0.a * c255.z`) empurra para a faixa escura: no Renut o
+   cabelo fica na faixa clara. Fetch constants todas normais (swizzle identidade nos DXT, BGRA nos 8888, exponent
+   adjust 0, `[drawlog]` slot lines). Proximo passo: o alfa da DXT5 do cabelo (mostrar so o canal A) e o termo de luz
+   `r0.x` (`lightpos.w`, `rim_param`, `WorldViewMatrix`) com as constantes no drawlog.
 2. **Fundo desfocado** (o Xenia mostra-o nitido). O pos-processamento tem motion blur por reprojecao da profundidade
    (`ps FE8B85F1`, `VelocityMatrix` em c0-c3) e a composicao (`1E001FAB`). A resolve de profundidade (DD92351C) tem a
-   cena (vista com `show_texture`). Tentado: deltas desligados, sem efeito. Hipotese: a escala da profundidade
-   (o jogo pode esperar outra codificacao) ou o alvo de velocidade (`40AFEA00`, formato 34) lido com outro formato.
+   cena (vista com `show_texture`). Tentado: deltas desligados, sem efeito. O alvo de velocidade resolvido (DD9238DC):
+   o ceu da ~(0,47, 0,5), velocidade zero como deve; o chao, com a camara parada, ~(0,55-0,6) e cresce para perto.
+   Hipotese: a reprojecao da profundidade (o jogo le-a como `k_32_FLOAT`, formato 36, num 1, sinais 0x55) espera outra
+   codificacao ou outro intervalo do que o alvo float do Renut lhe da (`banjo_gpu_depth_words_view`: 0 binds).

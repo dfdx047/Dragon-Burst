@@ -1,0 +1,22 @@
+Dragon Burst (2026-10-27): Burst Limit in game, image diagnostics (Renut M3).
+
+The [drawlog] texture lines name the fetch constant swizzle, exponent adjust, signs and number format.
+
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -2185,9 +2185,11 @@
+     if (DrawLogFrameLocked()) {
+       u32 w = 0, h = 0, d = 0;
+       fetch.Size(w, h, d);
+-      RGPU_INFO("[drawlog]   slot {}: texture {:08X} format {} {}x{} base {:08X} -> host slot {}{}", r, texture_va,
+-                u32(fetch.Format()), w, h, fetch.dword[1] & ~0xFFFu, binding.slot,
+-                binding.slot == kNullTextureSlot ? " (null texture)" : "");
++      RGPU_INFO("[drawlog]   slot {}: texture {:08X} format {} {}x{} base {:08X} -> host slot {}{}; dword0 {:08X} "
++                "swizzle {:03X} exp adjust {} signs {:X} num {}",
++                r, texture_va, u32(fetch.Format()), w, h, fetch.dword[1] & ~0xFFFu, binding.slot,
++                binding.slot == kNullTextureSlot ? " (null texture)" : "", fetch.dword[0], fetch.Swizzle(),
++                (int32_t(fetch.dword[3] << 13) >> 26), (fetch.dword[0] >> 2) & 0xFF, fetch.dword[3] & 1);
+     }
+     // SwordMan (Android, renut/0021): an answer that depended on the draw's target size is not kept.
+     const bool no_memo = TakeBindNoMemoLocked();
