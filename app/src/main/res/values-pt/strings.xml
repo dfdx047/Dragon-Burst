@@ -303,7 +303,6 @@
     <string name="perf_gpu_title">Otimizações da GPU</string>
     <string name="perf_gpu_sub">Deixe ligadas, a não ser que algo apareça errado.</string>
     <string name="gpu_notice_title">Antes de jogar</string>
-    <string name="gpu_notice_ok">Entendi</string>
     <string name="about_gpu_notice">Dicas de desempenho</string>
     <string name="import_iso">Importar .iso</string>
     <string name="import_folder">Importar pasta</string>
@@ -370,7 +369,6 @@
     <string name="input_smash">Smash</string>
     <string name="input_blast">Rajada de ki</string>
     <string name="textures_rules">• Nome: os 16 caracteres hexadecimais do hash da textura, o resto é ignorado, por exemplo 1F1ED618559910C0.png ou 1F1ED618559910C0_cabelo.dds\n• Todas as imagens na pasta replace/ do pack, sem subpastas\n• PNG (qualquer tipo) ou DDS BC1/BC2/BC3/BC7 ou 32 bits sem compressão\n• Qualquer tamanho: os mipmaps são feitos quando a textura carrega\n• Os mesmos packs da versão de PC (texture_folder/replace)</string>
-    <string name="gpu_notice_text">Snapdragon 865 ou mais novos (ex.: Retroid Pocket 5) devem rodar o jogo com o driver do sistema; o Turnip é opcional, na aba Drivers.\n\nGPUs Mali (ex.: Mali-G57 do RG Cube) rodam mais devagar: use a predefinição Leve (540p, 30 FPS) na aba Desempenho.\n\nEsta é uma versão inicial: exporte os logs (aba Sobre) para relatar problemas.</string>
     <string name="settings_touch_layout_map">Câmera livre</string>
     <string name="textures_dump">Extrair texturas originais</string>
     <string name="textures_dump_sub">Grava cada textura que o jogo carrega como .dds na pasta dump/ (Android/data/com.dfdx047.dragonburst/files/textures/dump, ou dentro do pack escolhido), já com o nome certo para um pack. Custa desempenho: só para criar packs.</string>
@@ -505,4 +503,28 @@
     <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sem contas de 16 bits (IR3 nofp16)</string>
     <string name="turnip_bisect">Bisect do Turnip: muda uma opção do driver em cada arranque do jogo</string>
     <string name="turnip_bisect_next">Próximo arranque: passo %1$s (de %2$d). Faça uma luta + autoteste do render em cada arranque e mande todos os zips.</string>
+    <string name="menu_fps_detail">Detalhe do medidor de FPS</string>
+    <string name="menu_fps_detail_sub">Completo: FPS do jogo e da tela, tempo de frame, ms da GPU e da thread principal, 1% low e gráfico.</string>
+    <string name="menu_fps_detail_simple">Só o FPS do jogo</string>
+    <string name="menu_fps_detail_full">Completo</string>
+    <string name="aspect_widescreen_off">Widescreen: indisponível (%1$s)</string>
+    <string name="aspect_widescreen_why_screen">esta tela já é 16:9</string>
+    <string name="aspect_widescreen_why_renderer">precisa do renderizador nativo, ainda não nesta versão</string>
+    <string name="gpu_first_device">Este aparelho: %1$s</string>
+    <string name="gpu_first_suggest">Sugestão: a predefinição %1$s (%2$s). Pode mudar quando quiser na aba Desempenho.</string>
+    <string name="gpu_first_driver_system">Driver: o do sistema (Vulkan %1$s). O Turnip é opcional, na aba Drivers; no Adreno 740 o do sistema foi mais rápido (60 contra 30 FPS na luta).</string>
+    <string name="gpu_first_driver_turnip">Driver: o do sistema só tem Vulkan %1$s, abaixo do 1.1 que o jogo usa. Instale um Turnip na aba Drivers.</string>
+    <string name="gpu_first_driver_other">Driver: o do sistema (os Turnip só servem para GPUs Adreno).</string>
+    <string name="gpu_first_footer">Esta é uma versão inicial: exporte os logs (aba Sobre) para relatar problemas.</string>
+    <string name="gpu_first_accept">Aceitar</string>
+    <string name="gpu_first_choose">Escolher eu mesmo</string>
+    <string name="gpu_lost_title">A GPU parou</string>
+    <string name="gpu_lost_text">O driver gráfico deixou de responder durante o jogo, por isso o jogo voltou aqui em vez de fechar. O que o jogo já tinha guardado fica guardado (ele guarda depois das lutas e das mudanças de opções).\n\nSe voltar a acontecer, experimente outro driver na aba Drivers.</string>
+    <string name="gpu_lost_ok">OK</string>
+    <string name="settings_offline_delay">Atraso dos comandos</string>
+    <string name="settings_offline_delay_sub">Lutas offline. Original: os 3 frames do próprio jogo (50 ms), como no Xbox 360. Reduzido: o toque age no frame seguinte. Vale a partir da próxima luta.</string>
+    <string name="input_delay_reduced">Reduzido</string>
+    <string name="input_delay_original">Original (3 frames)</string>
+    <string name="settings_drama">Drama Pieces</string>
+    <string name="settings_drama_sub">As cenas curtas que interrompem a luta (um parceiro que entra, momentos da história). Vale a partir da próxima luta.</string>
 </resources>

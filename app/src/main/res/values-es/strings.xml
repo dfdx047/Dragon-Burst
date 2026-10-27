@@ -303,7 +303,6 @@
     <string name="perf_gpu_title">Optimizaciones de GPU</string>
     <string name="perf_gpu_sub">Déjalas activadas salvo que algo se vea mal.</string>
     <string name="gpu_notice_title">Antes de jugar</string>
-    <string name="gpu_notice_ok">Entendido</string>
     <string name="about_gpu_notice">Consejos de rendimiento</string>
     <string name="import_iso">Importar .iso</string>
     <string name="import_folder">Importar carpeta</string>
@@ -370,7 +369,6 @@
     <string name="input_smash">Smash</string>
     <string name="input_blast">Ráfaga de ki</string>
     <string name="textures_rules">• Nombre: los 16 caracteres hexadecimales del hash de la textura, el resto se ignora, por ejemplo 1F1ED618559910C0.png o 1F1ED618559910C0_pelo.dds\n• Todas las imágenes en la carpeta replace/ del pack, sin subcarpetas\n• PNG (cualquier tipo) o DDS BC1/BC2/BC3/BC7 o 32 bits sin comprimir\n• Cualquier tamaño: los mipmaps se generan al cargar la textura\n• Los mismos packs que la versión de PC (texture_folder/replace)</string>
-    <string name="gpu_notice_text">Snapdragon 865 o posteriores (p. ej. Retroid Pocket 5) deberían ejecutar el juego con el driver del sistema; Turnip es opcional, en la pestaña Drivers.\n\nLas GPU Mali (p. ej. Mali-G57 de la RG Cube) van más lentas: usa el preajuste Ligero (540p, 30 FPS) en la pestaña Rendimiento.\n\nEsta es una versión inicial: exporta los logs (pestaña Acerca de) para reportar problemas.</string>
     <string name="settings_touch_layout_map">Cámara libre</string>
     <string name="textures_dump">Extraer texturas originales</string>
     <string name="textures_dump_sub">Guarda cada textura que carga el juego como .dds en la carpeta dump/ (Android/data/com.dfdx047.dragonburst/files/textures/dump, o dentro del pack elegido), ya con el nombre correcto para un pack. Cuesta rendimiento: solo para crear packs.</string>
@@ -505,4 +503,28 @@
     <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sin cálculos de 16 bits (IR3 nofp16)</string>
     <string name="turnip_bisect">Bisect de Turnip: cambia una opción del driver en cada arranque del juego</string>
     <string name="turnip_bisect_next">Próximo arranque: paso %1$s (de %2$d). Haz una pelea + autotest del render en cada arranque y envía todos los zips.</string>
+    <string name="menu_fps_detail">Detalle del contador de FPS</string>
+    <string name="menu_fps_detail_sub">Completo: FPS del juego y de la pantalla, tiempo de frame, ms de la GPU y del hilo principal, 1% low y gráfico.</string>
+    <string name="menu_fps_detail_simple">Solo los FPS del juego</string>
+    <string name="menu_fps_detail_full">Completo</string>
+    <string name="aspect_widescreen_off">Panorámico: no disponible (%1$s)</string>
+    <string name="aspect_widescreen_why_screen">esta pantalla ya es 16:9</string>
+    <string name="aspect_widescreen_why_renderer">necesita el renderizador nativo, aún no en esta versión</string>
+    <string name="gpu_first_device">Este dispositivo: %1$s</string>
+    <string name="gpu_first_suggest">Sugerido: el preajuste %1$s (%2$s). Puedes cambiarlo cuando quieras en la pestaña Rendimiento.</string>
+    <string name="gpu_first_driver_system">Driver: el del sistema (Vulkan %1$s). Turnip es opcional, en la pestaña Drivers; en la Adreno 740 el del sistema fue más rápido (60 frente a 30 FPS en combate).</string>
+    <string name="gpu_first_driver_turnip">Driver: el del sistema solo tiene Vulkan %1$s, por debajo del 1.1 que usa el juego. Instala un Turnip en la pestaña Drivers.</string>
+    <string name="gpu_first_driver_other">Driver: el del sistema (los Turnip solo sirven para GPUs Adreno).</string>
+    <string name="gpu_first_footer">Esta es una versión inicial: exporta los logs (pestaña Acerca de) para informar de problemas.</string>
+    <string name="gpu_first_accept">Aceptar</string>
+    <string name="gpu_first_choose">Elegir yo mismo</string>
+    <string name="gpu_lost_title">La GPU se detuvo</string>
+    <string name="gpu_lost_text">El driver gráfico dejó de responder durante el juego, así que el juego volvió aquí en lugar de cerrarse. Lo que el juego ya había guardado se conserva (guarda después de los combates y de los cambios de opciones).\n\nSi vuelve a pasar, prueba otro driver en la pestaña Drivers.</string>
+    <string name="gpu_lost_ok">OK</string>
+    <string name="settings_offline_delay">Retraso de los controles</string>
+    <string name="settings_offline_delay_sub">Combates sin conexión. Original: los 3 frames del propio juego (50 ms), como en Xbox 360. Reducido: la pulsación actúa en el frame siguiente. Desde el próximo combate.</string>
+    <string name="input_delay_reduced">Reducido</string>
+    <string name="input_delay_original">Original (3 frames)</string>
+    <string name="settings_drama">Drama Pieces</string>
+    <string name="settings_drama_sub">Las escenas cortas que interrumpen el combate (un compañero que entra, momentos de la historia). Desde el próximo combate.</string>
 </resources>

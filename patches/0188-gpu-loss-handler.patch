@@ -1,0 +1,97 @@
+Dragon Burst 0188: a host GPU loss no longer aborts the process
+
+GraphicsSystem::OnHostGpuLossFromAnyThread called rex::FatalError (std::abort). With a handler set by the
+app (SetHostGpuLossHandler) the command processor just stops submitting (device_lost_, as before), the
+loss is logged and flushed and the app takes over (Android: back to the launcher with a notice).
+Without a handler nothing changes. gpu_test_loss_s = N simulates a loss N s after the guest GPU starts.
+
+diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
+index 85d72189744039aace5b942dbb9867ffbb48a3c9..c1bd26531e350bd7b0f9ecf2fa52b707c868d8c8 100644
+--- a/include/rex/graphics/graphics_system.h
++++ b/include/rex/graphics/graphics_system.h
+@@ -46,6 +46,14 @@ namespace rex::graphics {
+ 
+ class CommandProcessor;
+ 
++// Dragon Burst 0188: called once, from any thread, when the host GPU device is lost
++// (VK_ERROR_DEVICE_LOST). With a handler set the command processor just stops submitting
++// and the app decides what to do (Android: back to the launcher with a notice) instead of
++// the process aborting. reason: a short description for the user and the log.
++using HostGpuLossHandler = void (*)(const char* reason);
++// Exported: the graphics library builds with hidden visibility (see 0108) and the app calls it.
++__attribute__((visibility("default"))) void SetHostGpuLossHandler(HostGpuLossHandler handler);
++
+ class GraphicsSystem : public system::IGraphicsSystem {
+  public:
+   virtual ~GraphicsSystem();
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index f4d5163d491114fb47be4bbba0ea4e102c6e45bb..05672b4255193d845af890c3b69e7a6c63bc1cd7 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -20,6 +20,7 @@
+ #include <functional>
+ #include <memory>
+ #include <mutex>
++#include <thread>
+ #include <utility>
+ 
+ #include <rex/cvar.h>
+@@ -36,6 +37,9 @@
+ #include <rex/ui/window.h>
+ #include <rex/ui/windowed_app_context.h>
+ 
++REXCVAR_DEFINE_INT32(gpu_test_loss_s, 0, "GPU",
++                     "Test: report a host GPU loss N seconds after the guest GPU starts (0 = off)");
++
+ REXCVAR_DEFINE_STRING(swap_post_effect, "none", "GPU",
+                       "Anti-aliasing of the final image: none, fxaa, fxaa_extreme")
+     .allowed({"none", "fxaa", "fxaa_extreme"});
+@@ -64,10 +68,17 @@ rex::graphics::CommandProcessor::SwapPostEffect ParseSwapPostEffect(
+ 
+ // The command processor swap_post_effect changes go to while it exists.
+ std::atomic<rex::graphics::CommandProcessor*> g_swap_post_effect_target{nullptr};
++
++// 0188: what to do on a host GPU loss instead of aborting.
++std::atomic<rex::graphics::HostGpuLossHandler> g_host_gpu_loss_handler{nullptr};
+ }  // namespace
+ 
+ namespace rex::graphics {
+ 
++void SetHostGpuLossHandler(HostGpuLossHandler handler) {
++  g_host_gpu_loss_handler.store(handler, std::memory_order_release);
++}
++
+ // Nvidia Optimus/AMD PowerXpress support.
+ // These exports force the process to trigger the discrete GPU in multi-GPU
+ // systems.
+@@ -165,6 +176,15 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+                                  reinterpret_cast<runtime::MMIOReadCallback>(ReadRegisterThunk),
+                                  reinterpret_cast<runtime::MMIOWriteCallback>(WriteRegisterThunk));
+ 
++  // 0188: gpu_test_loss_s simulates a host GPU loss to test what the app does with it.
++  if (const int32_t test_loss_s = REXCVAR_GET(gpu_test_loss_s); test_loss_s > 0) {
++    std::thread([this, test_loss_s] {
++      std::this_thread::sleep_for(std::chrono::seconds(test_loss_s));
++      REXGPU_WARN("gpu_test_loss_s: simulating a host GPU loss");
++      OnHostGpuLossFromAnyThread(true);
++    }).detach();
++  }
++
+   // Guest vblank timer based on the configured guest video mode, or the rate a
+   // game picked for its frame rate (rex::graphics::SetGuestVblankRate).
+   vsync_worker_running_ = true;
+@@ -280,6 +300,14 @@ void GraphicsSystem::OnHostGpuLossFromAnyThread([[maybe_unused]] bool is_respons
+   if (host_gpu_loss_reported_.test_and_set(std::memory_order_relaxed)) {
+     return;
+   }
++  if (const HostGpuLossHandler handler = g_host_gpu_loss_handler.load(std::memory_order_acquire)) {
++    // 0188: no new device here; the command processor has stopped submitting and the app
++    // takes the player back (instead of a SIGABRT / SIGSEGV in the driver later).
++    REXGPU_ERROR("Graphics device lost: submissions stopped, handing over to the app");
++    rex::FlushLogging();
++    handler("device lost");
++    return;
++  }
+   rex::FatalError("Graphics device lost (probably due to an internal error)");
+ }
+ 

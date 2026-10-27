@@ -36,6 +36,15 @@ object DisplayRates {
     @JvmStatic
     fun supports120(context: Context): Boolean = maxRefreshHz(context) >= MIN_120_HZ
 
+    /** A tela e mais larga que 16:9 (lado maior / lado menor > 1,8), em qualquer orientacao. */
+    @JvmStatic
+    fun isWiderThan16x9(context: Context): Boolean {
+        val m = display(context)?.mode ?: return false
+        val long = maxOf(m.physicalWidth, m.physicalHeight).toFloat()
+        val short = minOf(m.physicalWidth, m.physicalHeight).toFloat()
+        return short > 0f && long / short > 1.8f
+    }
+
     /**
      * O modo da tela (mesma resolucao) mais perto de [hz]: o exato (+-1 Hz) se existir; senao, para
      * 120, o mais alto ate 125 Hz e acima de 110; para 60, o de 60 Hz. null se nao houver.

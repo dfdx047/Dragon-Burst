@@ -64,6 +64,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dfdx047.dragonburst.R
+import com.dfdx047.dragonburst.data.GpuAdvice
+import com.dfdx047.dragonburst.data.GraphicsPreset
+import com.dfdx047.dragonburst.data.recommendedPreset
+import com.dfdx047.dragonburst.data.withPreset
 import com.dfdx047.dragonburst.ui.screens.AboutScreen
 import com.dfdx047.dragonburst.ui.screens.ControlsScreen
 import com.dfdx047.dragonburst.ui.screens.DebugScreen
@@ -148,6 +152,7 @@ fun LauncherApp(vm: LauncherViewModel) {
     }
 
     if (vm.showGpuNotice) GpuNotice(vm, openTab = { tab = it })
+    if (vm.showGpuLost) GpuLostDialog(vm, openDrivers = { tab = LauncherTab.DRIVERS })
     if (vm.showUpdateDialog) UpdateDialog(vm)
 }
 
@@ -261,37 +266,89 @@ private fun TabContent(tab: LauncherTab, vm: LauncherViewModel, goTo: (LauncherT
 }
 
 /**
- * Aviso de primeiro arranque (e pelo Sobre): em que GPUs/drivers o jogo foi otimizado
- * e o que fazer nas Mali. Fechar marca-o como visto.
+ * Primeiro arranque (e pelo Sobre): a GPU deste aparelho, a predefinicao sugerida e o driver
+ * pelo que o do sistema tem (GpuAdvice). Aceitar aplica a predefinicao; Escolher eu mesmo abre
+ * a aba Desempenho. Fechar marca-o como visto.
  */
 @Composable
 private fun GpuNotice(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
+    val context = LocalContext.current
+    val preset = remember { recommendedPreset() }
+    val device = remember { GpuAdvice.deviceLabel() }
+    val driver = remember { GpuAdvice.driver(context) }
+    val vulkan = remember { GpuAdvice.vulkanLabel(GpuAdvice.systemVulkanVersion(context)) }
+    val presetName = stringResource(
+        when (preset) {
+            GraphicsPreset.MINIMUM -> R.string.preset_minimum
+            GraphicsPreset.LIGHT -> R.string.preset_light
+            GraphicsPreset.BALANCED -> R.string.preset_balanced
+            GraphicsPreset.HIGH -> R.string.preset_high
+            GraphicsPreset.ULTRA -> R.string.preset_ultra
+        },
+    )
+    val presetDesc = stringResource(
+        when (preset) {
+            GraphicsPreset.MINIMUM -> R.string.preset_minimum_desc
+            GraphicsPreset.LIGHT -> R.string.preset_light_desc
+            GraphicsPreset.BALANCED -> R.string.preset_balanced_desc
+            GraphicsPreset.HIGH -> R.string.preset_high_desc
+            GraphicsPreset.ULTRA -> R.string.preset_ultra_desc
+        },
+    )
+    val driverText = when (driver) {
+        GpuAdvice.Driver.SYSTEM -> stringResource(R.string.gpu_first_driver_system, vulkan)
+        GpuAdvice.Driver.TURNIP_NEEDED -> stringResource(R.string.gpu_first_driver_turnip, vulkan)
+        GpuAdvice.Driver.NOT_ADRENO -> stringResource(R.string.gpu_first_driver_other)
+    }
     AlertDialog(
         onDismissRequest = { vm.dismissGpuNotice() },
         icon = { Icon(Icons.Filled.Memory, null) },
         title = { Text(stringResource(R.string.gpu_notice_title)) },
         text = {
             Text(
-                stringResource(R.string.gpu_notice_text),
+                listOf(
+                    stringResource(R.string.gpu_first_device, device),
+                    stringResource(R.string.gpu_first_suggest, presetName, presetDesc),
+                    driverText,
+                    stringResource(R.string.gpu_first_footer),
+                ).joinToString("\n\n"),
                 modifier = Modifier
                     .heightIn(max = 360.dp)
                     .verticalScroll(rememberScrollState()),
             )
         },
         confirmButton = {
-            TextButton(onClick = { vm.dismissGpuNotice() }) { Text(stringResource(R.string.gpu_notice_ok)) }
+            TextButton(onClick = {
+                vm.updateConfig { it.withPreset(preset) }
+                vm.dismissGpuNotice()
+                if (driver == GpuAdvice.Driver.TURNIP_NEEDED) openTab(LauncherTab.DRIVERS)
+            }) { Text(stringResource(R.string.gpu_first_accept)) }
         },
         dismissButton = {
-            Row {
-                TextButton(onClick = {
-                    vm.dismissGpuNotice()
-                    openTab(LauncherTab.DRIVERS)
-                }) { Text(stringResource(R.string.tab_drivers)) }
-                TextButton(onClick = {
-                    vm.dismissGpuNotice()
-                    openTab(LauncherTab.PERFORMANCE)
-                }) { Text(stringResource(R.string.tab_performance)) }
-            }
+            TextButton(onClick = {
+                vm.dismissGpuNotice()
+                openTab(LauncherTab.PERFORMANCE)
+            }) { Text(stringResource(R.string.gpu_first_choose)) }
+        },
+    )
+}
+
+/** O jogo perdeu a GPU (SDK 0188) e voltou aqui em vez de fechar. */
+@Composable
+private fun GpuLostDialog(vm: LauncherViewModel, openDrivers: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = { vm.dismissGpuLost() },
+        icon = { Icon(Icons.Filled.Memory, null) },
+        title = { Text(stringResource(R.string.gpu_lost_title)) },
+        text = { Text(stringResource(R.string.gpu_lost_text)) },
+        confirmButton = {
+            TextButton(onClick = { vm.dismissGpuLost() }) { Text(stringResource(R.string.gpu_lost_ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                vm.dismissGpuLost()
+                openDrivers()
+            }) { Text(stringResource(R.string.tab_drivers)) }
         },
     )
 }

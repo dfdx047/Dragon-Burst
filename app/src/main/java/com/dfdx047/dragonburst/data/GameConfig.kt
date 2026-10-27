@@ -28,6 +28,9 @@ data class GameConfig(
     val frameInterpolation: Boolean = false,
     val frameskip: Boolean = false,           // dbz3_frameskip: jogo a 60, desenha 1 em 2 (patch 0023)
     val showFps: Boolean = false,             // debug_overlay
+    val fpsDetail: String = "full",           // debug_overlay_detail full|simple (SDK 0185)
+    // debug_overlay_position: em cima a direita (a esquerda fica a engrenagem dos controles por toque)
+    val fpsPosition: String = "top-right",
     val letterbox: Boolean = true,            // present_letterbox (16:9 com barras / esticar)
     // Efeitos do jogo (burstlimit_patches.cpp: desligados por omissao no PC)
     val depthOfField: Boolean = false,        // depth_of_field
@@ -47,6 +50,8 @@ data class GameConfig(
     val modsEnabled: Boolean = true,          // mods_enabled
     val onlineBranding: Boolean = true,       // online_branding
     val menuSounds: Boolean = true,           // menu_sounds
+    val inputDelay: String = "reduced",       // input_delay original|reduced (BL v7.3, lutas offline)
+    val dramaPieces: Boolean = true,          // drama_pieces (BL v7.3)
     val texturePack: Boolean = false,         // texture_replace_enabled
     val texturePreload: Boolean = true,       // texture_replace_preload
     val textureDump: Boolean = false,         // texture_dump_enabled (<texture_folder>/dump)
@@ -99,6 +104,17 @@ data class GameConfig(
         // Com o jogo a 60, desenha so metade dos frames (GPUs fracas, patch 0023).
         "dbz3_frameskip" to if (frameskip && frameRate == 60) 1 else 0,
         "debug_overlay" to showFps,
+        "debug_overlay_detail" to fpsDetail,
+        "debug_overlay_position" to fpsPosition,
+        // Rotulos do medidor na lingua da app (SDK 0185: en, pt, es).
+        "debug_overlay_language" to when (java.util.Locale.getDefault().language) {
+            "pt" -> "pt"
+            "es" -> "es"
+            else -> "en"
+        },
+        // Widescreen do BL v7.3 (aspect_ratio) fica em 16:9: no Vulkan o HUD nao e reposto
+        // (SDK 0186 so traz a projecao) e o Xenia so escala por inteiros. Ver AndroidMenu.
+        "aspect_ratio" to "16:9",
         "present_letterbox" to letterbox,
         "depth_of_field" to depthOfField,
         "glow_blur" to glowBlur,
@@ -117,6 +133,8 @@ data class GameConfig(
         "mods_enabled" to modsEnabled,
         "online_branding" to onlineBranding,
         "menu_sounds" to menuSounds,
+        "input_delay" to inputDelay,
+        "drama_pieces" to dramaPieces,
         "texture_replace_enabled" to texturePack,
         "texture_replace_preload" to texturePreload,
         "texture_dump_enabled" to textureDump,
@@ -228,6 +246,8 @@ data class GameConfig(
                     bool("dbz3_frame_interpolation", false),
                 frameskip = int("dbz3_frameskip", 0) > 0,
                 showFps = bool("debug_overlay", d.showFps),
+                fpsDetail = str("debug_overlay_detail", d.fpsDetail).takeIf { it == "simple" } ?: "full",
+                fpsPosition = str("debug_overlay_position", d.fpsPosition),
                 letterbox = bool("present_letterbox", d.letterbox),
                 depthOfField = bool("depth_of_field", d.depthOfField),
                 glowBlur = bool("glow_blur", d.glowBlur),
@@ -245,6 +265,8 @@ data class GameConfig(
                 modsEnabled = bool("mods_enabled", d.modsEnabled),
                 onlineBranding = bool("online_branding", d.onlineBranding),
                 menuSounds = bool("menu_sounds", d.menuSounds),
+                inputDelay = str("input_delay", d.inputDelay).takeIf { it == "original" } ?: "reduced",
+                dramaPieces = bool("drama_pieces", d.dramaPieces),
                 texturePack = bool("texture_replace_enabled", d.texturePack),
                 texturePreload = bool("texture_replace_preload", d.texturePreload),
                 textureDump = bool("texture_dump_enabled", d.textureDump),

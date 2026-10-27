@@ -26,6 +26,7 @@
 #include <rex/audio/audio_system.h>
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/graphics/graphics_system.h>
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
@@ -158,6 +159,26 @@ Java_com_dfdx047_dragonburst_game_NativeGameState_nativeSyncPause(JNIEnv*, jclas
 }
 
 /** Ao sair do jogo: nunca deixar a thread do jogo presa na pausa. */
+// Perda da GPU (SDK 0188): o SDK deixa de submeter e marca aqui; o HelperEngine ve a marca
+// e o GameOverlay volta ao launcher com o aviso (em vez de SIGABRT no jogo).
+namespace {
+std::atomic<bool> g_gpu_lost{false};
+
+void OnHostGpuLost(const char*) {
+  g_gpu_lost.store(true, std::memory_order_release);
+}
+
+const bool g_gpu_loss_handler_set = [] {
+  rex::graphics::SetHostGpuLossHandler(OnHostGpuLost);
+  return true;
+}();
+}  // namespace
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dfdx047_dragonburst_game_NativeGameState_nativeGpuLost(JNIEnv*, jclass) {
+  return g_gpu_lost.load(std::memory_order_acquire) ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_dfdx047_dragonburst_game_NativeGameState_nativeForceResume(JNIEnv*, jclass) {
   {

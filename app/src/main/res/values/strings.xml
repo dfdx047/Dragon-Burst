@@ -304,7 +304,6 @@
     <string name="perf_gpu_title">GPU optimizations</string>
     <string name="perf_gpu_sub">Leave them on unless something looks wrong.</string>
     <string name="gpu_notice_title">Before you play</string>
-    <string name="gpu_notice_ok">Got it</string>
     <string name="about_gpu_notice">Performance tips</string>
     <string name="import_iso">Import .iso</string>
     <string name="import_folder">Import folder</string>
@@ -371,7 +370,6 @@
     <string name="input_smash">Smash</string>
     <string name="input_blast">Ki blast</string>
     <string name="textures_rules">• Name: the 16 hex characters of the texture hash, the rest is ignored, for example 1F1ED618559910C0.png or 1F1ED618559910C0_hair.dds\n• All images in the replace/ folder of the pack, no subfolders\n• PNG (any type) or DDS BC1/BC2/BC3/BC7 or 32-bit uncompressed\n• Any size: mipmaps are built when the texture loads\n• Same packs as the PC version (texture_folder/replace)</string>
-    <string name="gpu_notice_text">Snapdragon 865 or newer (e.g. Retroid Pocket 5) should run the game with the system driver; Turnip is optional, in the Drivers tab.\n\nMali GPUs (e.g. Mali-G57 in the RG Cube) run it slower: use the Light preset (540p, 30 FPS) in the Performance tab.\n\nThis is an early version: export the logs (About tab) to report problems.</string>
     <string name="settings_touch_layout_map">Free camera</string>
     <string name="textures_dump">Dump original textures</string>
     <string name="textures_dump_sub">Saves every texture the game loads as .dds in the dump/ folder (Android/data/com.dfdx047.dragonburst/files/textures/dump, or inside the selected pack), already with the right name for a pack. Costs performance: only for making packs.</string>
@@ -506,4 +504,28 @@
     <string name="turnip_compat_ir3_nofp16">Shader compiler: no 16-bit math (IR3 nofp16)</string>
     <string name="turnip_bisect">Turnip bisect: change one driver option per game start</string>
     <string name="turnip_bisect_next">Next game start: step %1$s (of %2$d). Do a fight + render self-test at each start and send every zip.</string>
+    <string name="menu_fps_detail">FPS counter detail</string>
+    <string name="menu_fps_detail_sub">Full: game and screen FPS, frame time, GPU and main thread ms, 1% low and graph.</string>
+    <string name="menu_fps_detail_simple">Game FPS only</string>
+    <string name="menu_fps_detail_full">Full</string>
+    <string name="aspect_widescreen_off">Widescreen: unavailable (%1$s)</string>
+    <string name="aspect_widescreen_why_screen">this screen is already 16:9</string>
+    <string name="aspect_widescreen_why_renderer">needs the native renderer, not in this version yet</string>
+    <string name="gpu_first_device">This device: %1$s</string>
+    <string name="gpu_first_suggest">Suggested: the %1$s preset (%2$s). You can change it any time in the Performance tab.</string>
+    <string name="gpu_first_driver_system">Driver: the system one (Vulkan %1$s). Turnip is optional, in the Drivers tab; on the Adreno 740 the system driver was faster (60 against 30 FPS in a fight).</string>
+    <string name="gpu_first_driver_turnip">Driver: the system one only has Vulkan %1$s, below the 1.1 the game uses. Install a Turnip in the Drivers tab.</string>
+    <string name="gpu_first_driver_other">Driver: the system one (Turnip drivers are for Adreno GPUs only).</string>
+    <string name="gpu_first_footer">This is an early version: export the logs (About tab) to report problems.</string>
+    <string name="gpu_first_accept">Accept</string>
+    <string name="gpu_first_choose">Choose myself</string>
+    <string name="gpu_lost_title">The GPU stopped</string>
+    <string name="gpu_lost_text">The graphics driver stopped responding during the game, so the game returned here instead of closing. What the game had saved is kept (it saves after fights and option changes).\n\nIf it happens again, try another driver in the Drivers tab.</string>
+    <string name="gpu_lost_ok">OK</string>
+    <string name="settings_offline_delay">Input delay</string>
+    <string name="settings_offline_delay_sub">Offline fights. Original: the game\'s own 3 frames (50 ms), as on the Xbox 360. Reduced: a press acts on the next frame. From the next fight.</string>
+    <string name="input_delay_reduced">Reduced</string>
+    <string name="input_delay_original">Original (3 frames)</string>
+    <string name="settings_drama">Drama Pieces</string>
+    <string name="settings_drama_sub">The short cut-scenes that interrupt a fight (a partner stepping in, story moments). From the next fight.</string>
 </resources>

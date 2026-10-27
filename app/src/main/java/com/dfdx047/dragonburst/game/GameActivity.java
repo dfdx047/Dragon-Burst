@@ -347,11 +347,24 @@ public class GameActivity extends SDLActivity {
         reportDisplayRate();
     }
 
-    /** Orientacao escolhida no launcher: paisagem, paisagem invertida ou automatica. */
+    /**
+     * O SDL pede a sua orientacao quando cria a janela: FULL_USER (janela redimensionavel e sem
+     * SDL_HINT_ORIENTATIONS), que deixava o jogo ir para retrato com o aparelho em pe. Fica sempre
+     * a do launcher.
+     */
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        applyOrientation();
+    }
+
+    /**
+     * Orientacao escolhida no launcher: paisagem, paisagem invertida ou automatica (as duas
+     * paisagens pelo sensor, o padrao). Retrato nunca.
+     */
     private void applyOrientation() {
         @SuppressWarnings("deprecation")
         SharedPreferences prefs = getSharedPreferences("dragonburst", MODE_MULTI_PROCESS);
-        String mode = prefs.getString("game_orientation", "landscape");
+        String mode = prefs.getString("game_orientation", "auto");
         int orientation;
         if ("reverse".equals(mode)) {
             orientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;

@@ -34,6 +34,9 @@ class HelperEngine {
     private var stickX = 0f
     private var stickY = 0f
 
+    /** Quando cada elemento foi premido (uptime, ms), para o toque minimo de [MIN_PRESS_MS]. */
+    private val pressedAt = HashMap<String, Long>()
+
     private val sent = HashSet<PadInput>()
     private var sentLx = 0f
     private var sentLy = 0f
@@ -67,6 +70,11 @@ class HelperEngine {
     @Volatile var onMap = false
         private set
     private var offMapTicks = 0
+
+    /** A GPU perdeu-se (SDK 0188). Chamado uma vez, na thread principal. */
+    var onGpuLost: (() -> Unit)? = null
+    private var gpuLostTicks = 0
+    private var gpuLostReported = false
 
     /** Diagnostico (so com "Diagnostico de desempenho"): recebe linhas para logs/controles.log. */
     @Volatile var diag: ((String) -> Unit)? = null
@@ -103,6 +111,7 @@ class HelperEngine {
         synchronized(lock) {
             running = false
             held.clear()
+            pressedAt.clear()
             sequences.clear()
             stickX = 0f
             stickY = 0f
@@ -118,6 +127,7 @@ class HelperEngine {
 
     fun press(id: String, action: ControlAction) {
         synchronized(lock) {
+            pressedAt[id] = SystemClock.uptimeMillis()
             when (action) {
                 is ControlAction.Press -> held[id] = action.inputs
                 is ControlAction.Sequence -> if (action.steps.isNotEmpty()) sequences[id] = Running(action.steps, action.holdLast)
@@ -127,8 +137,28 @@ class HelperEngine {
         if (action is ControlAction.Press) handler.post { step() }
     }
 
+    /**
+     * Solta o elemento, mas so depois de [MIN_PRESS_MS] desde que foi premido: o jogo le o
+     * comando uma vez por frame e um toque mais curto que isso perdia-se entre duas leituras.
+     */
     fun releaseElement(id: String) {
+        val stamp: Long
+        val wait: Long
         synchronized(lock) {
+            stamp = pressedAt[id] ?: 0L
+            wait = if (stamp == 0L) 0L else MIN_PRESS_MS - (SystemClock.uptimeMillis() - stamp)
+        }
+        if (wait > 0) {
+            // Premido outra vez entretanto: essa pressao manda.
+            handler.postDelayed({ if (synchronized(lock) { pressedAt[id] } == stamp) releaseNow(id) }, wait)
+            return
+        }
+        releaseNow(id)
+    }
+
+    private fun releaseNow(id: String) {
+        synchronized(lock) {
+            pressedAt.remove(id)
             held.remove(id)
             sequences[id]?.let { seq ->
                 seq.released = true
@@ -148,13 +178,25 @@ class HelperEngine {
 
     /** Uma "pressao" da direcao do D-pad do ecra (ou do analogico em modo digital). */
     fun setDpad(id: String, inputs: Set<PadInput>) {
+        if (inputs.isEmpty()) {
+            releaseElement(id)
+            return
+        }
         synchronized(lock) {
-            if (inputs.isEmpty()) held.remove(id) else held[id] = inputs
+            if (held[id] == null) pressedAt[id] = SystemClock.uptimeMillis()
+            held[id] = inputs
         }
         handler.post { step() }
     }
 
     private fun step() {
+        if (!gpuLostReported && ++gpuLostTicks >= GPU_LOST_CHECK_TICKS) {
+            gpuLostTicks = 0
+            if (NativeGameState.gpuLost()) {
+                gpuLostReported = true
+                mainHandler.post { onGpuLost?.invoke() }
+            }
+        }
         paused = NativeGameState.syncPause(menuOpen, pauseQuickMenu)
         side = NativeGameState.p1Side()
         if (!paused) {
@@ -276,6 +318,10 @@ class HelperEngine {
         const val MENU_DELAY_TICKS = 90
         /** ~1,5 s fora do estado de voo antes de sair do layout do mapa. */
         const val MAP_DELAY_TICKS = 90
+        /** Toque minimo (ms): a 30 fps o jogo le o comando a cada 33 ms. */
+        const val MIN_PRESS_MS = 80L
+        /** De quantos em quantos ticks (~16 ms) ver se a GPU se perdeu. */
+        const val GPU_LOST_CHECK_TICKS = 30
     }
 
     private fun keyFor(i: PadInput): Int? = when (i) {

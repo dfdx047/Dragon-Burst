@@ -432,13 +432,24 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
                     "bottom-left" to s(R.string.menu_pos_bottom_left),
                     "bottom-right" to s(R.string.menu_pos_bottom_right),
                 ),
-                live["debug_overlay_position"]?.ifEmpty { null } ?: "top-left",
-            ) { v -> setLive("debug_overlay_position", v) }
+                c.fpsPosition,
+            ) { v -> set(c.copy(fpsPosition = v), mapOf("debug_overlay_position" to v)) }
+            // SDK 0185: Jogo / Tela / tempo de frame / GPU / CPU / 1% low / grafico, ou so o FPS do jogo.
+            list += choice(
+                s(R.string.menu_fps_detail), s(R.string.menu_fps_detail_sub),
+                listOf("simple" to s(R.string.menu_fps_detail_simple), "full" to s(R.string.menu_fps_detail_full)),
+                c.fpsDetail,
+            ) { v -> set(c.copy(fpsDetail = v), mapOf("debug_overlay_detail" to v)) }
         }
         list += choice(
             s(R.string.settings_aspect_mode), null,
             listOf(true to s(R.string.aspect_original), false to s(R.string.aspect_stretch)), c.letterbox,
         ) { v -> set(c.copy(letterbox = v), mapOf("present_letterbox" to v.toString())) }
+        // Widescreen (hor+) sempre visivel, com o motivo de nao se aplicar.
+        list += MInfo(s(R.string.aspect_widescreen_off, s(
+            if (DisplayRates.isWiderThan16x9(context)) R.string.aspect_widescreen_why_renderer
+            else R.string.aspect_widescreen_why_screen,
+        )))
         list += MHeader(s(R.string.settings_filter))
         list += choice(
             s(R.string.settings_filter), s(R.string.settings_filter_sub),
@@ -537,6 +548,15 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         }
         list += MToggle(s(R.string.settings_menu_sounds), s(R.string.settings_menu_sounds_sub), c.menuSounds) { v ->
             set(c.copy(menuSounds = v), mapOf("menu_sounds" to v.toString()))
+        }
+        // BL v7.3: o atraso de 3 frames do jogo nas lutas offline, e as cenas curtas a meio da luta.
+        list += choice(
+            s(R.string.settings_offline_delay), s(R.string.settings_offline_delay_sub),
+            listOf("reduced" to s(R.string.input_delay_reduced), "original" to s(R.string.input_delay_original)),
+            c.inputDelay,
+        ) { v -> set(c.copy(inputDelay = v), mapOf("input_delay" to v)) }
+        list += MToggle(s(R.string.settings_drama), s(R.string.settings_drama_sub), c.dramaPieces) { v ->
+            set(c.copy(dramaPieces = v), mapOf("drama_pieces" to v.toString()))
         }
         list += MInfo(s(R.string.menu_game_more))
         return list
@@ -668,7 +688,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private fun num(x: Double): String = String.format(java.util.Locale.ROOT, "%.4f", x)
 
     private companion object {
-        val LIVE_CVARS = listOf("free_camera", "freeze_game", "field_of_view", "debug_overlay_position")
+        val LIVE_CVARS = listOf("free_camera", "freeze_game", "field_of_view")
     }
 }
 

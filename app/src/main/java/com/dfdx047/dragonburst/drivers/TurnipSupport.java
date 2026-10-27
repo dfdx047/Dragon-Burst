@@ -115,6 +115,10 @@ public final class TurnipSupport {
     public static Gpu detect() {
         String soc = Build.VERSION.SDK_INT >= 31 && Build.SOC_MODEL != null ? Build.SOC_MODEL : "";
         String model = soc.toUpperCase(Locale.ROOT);
+        // Variantes IoT com a mesma GPU: QCS8550 (AYN Odin 2 Mini/Portal) = SM8550, QCS8250 = SM8250.
+        if (model.startsWith("QCS") || model.startsWith("QCM")) {
+            model = "SM" + model.substring(3);
+        }
         if (model.isEmpty()) {
             String board = (Build.BOARD + " " + Build.HARDWARE).toLowerCase(Locale.ROOT);
             for (String[] b : BOARDS) {

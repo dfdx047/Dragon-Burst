@@ -211,10 +211,23 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     /** Ao voltar ao launcher: o menu rapido do jogo pode ter mudado o toml. */
+    /** O jogo perdeu a GPU na ultima vez (SDK 0188): aviso ao voltar ao launcher. */
+    var showGpuLost by mutableStateOf(false)
+        private set
+
+    fun dismissGpuLost() {
+        showGpuLost = false
+    }
+
     fun reloadAfterGame() {
         viewModelScope.launch(Dispatchers.IO) {
             val c = GameConfig.load()
-            withContext(Dispatchers.Main) { config = c }
+            val lost = prefs.gpuLostAt != 0L
+            if (lost) prefs.gpuLostAt = 0L
+            withContext(Dispatchers.Main) {
+                config = c
+                if (lost) showGpuLost = true
+            }
             runtimeTextureLog = TexturePacks.runtimeLog()
         }
     }

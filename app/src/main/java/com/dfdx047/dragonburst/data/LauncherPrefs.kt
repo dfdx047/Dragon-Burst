@@ -58,7 +58,7 @@ class LauncherPrefs(context: Context) {
         set(v) = prefs.edit().putString(KEY_DARK, v.key).apply()
 
     var gameOrientation: GameOrientation
-        get() = enumByKey(prefs.getString(KEY_ORIENTATION, null), GameOrientation.LANDSCAPE) { it.key }
+        get() = enumByKey(prefs.getString(KEY_ORIENTATION, null), GameOrientation.AUTO) { it.key }
         set(v) = prefs.edit().putString(KEY_ORIENTATION, v.key).apply()
 
     /**
@@ -145,6 +145,13 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_GPU_NOTICE, false)
         set(v) = prefs.edit().putBoolean(KEY_GPU_NOTICE, v).apply()
 
+    /** Quando o jogo perdeu a GPU (ms, 0 = nada por avisar). Gravado no processo do jogo. */
+    var gpuLostAt: Long
+        get() = prefs.getLong(KEY_GPU_LOST_AT, 0L)
+        set(v) {
+            prefs.edit().putLong(KEY_GPU_LOST_AT, v).commit()
+        }
+
     /** Migracao unica: liga dbz3_rt_direct para todos (caminho principal de desempenho). */
     var rtDirectMigrated: Boolean
         get() = prefs.getBoolean(KEY_RT_DIRECT_MIGRATED, false)
@@ -176,6 +183,7 @@ class LauncherPrefs(context: Context) {
         const val KEY_TOUCH_OPACITY = "touch_opacity"
         const val KEY_TURNIP_NOTICE = "turnip_notice_shown"
         const val KEY_GPU_NOTICE = "gpu_notice_shown"
+        const val KEY_GPU_LOST_AT = "gpu_lost_at"
         const val KEY_RT_DIRECT_MIGRATED = "rt_direct_migrated"
         const val KEY_CHECK_UPDATES = "check_updates"
         const val KEY_SKIPPED_UPDATE = "skipped_update"

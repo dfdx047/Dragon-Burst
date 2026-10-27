@@ -96,6 +96,12 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
             }
         }
         engine.pauseQuickMenu = prefs.pauseOnMenus
+        // GPU perdida (SDK 0188): o jogo ja nao desenha; volta ao launcher, que mostra o aviso.
+        engine.onGpuLost = {
+            android.util.Log.w("DragonBurst", "GPU perdida: volta ao launcher")
+            prefs.gpuLostAt = System.currentTimeMillis()
+            exitToLauncher()
+        }
         engine.onBattleChanged = { battle ->
             inBattle = battle
             view?.let {

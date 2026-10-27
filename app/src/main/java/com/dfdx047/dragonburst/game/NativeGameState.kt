@@ -171,6 +171,19 @@ object NativeGameState {
     @JvmStatic
     private external fun nativeForceResume()
 
+    /** A GPU perdeu-se (VK_ERROR_DEVICE_LOST, SDK 0188): o jogo ja nao desenha. */
+    fun gpuLost(): Boolean {
+        if (!available) return false
+        return try {
+            nativeGpuLost()
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        }
+    }
+
+    @JvmStatic
+    private external fun nativeGpuLost(): Boolean
+
     @JvmStatic private external fun nativeGetCvar(name: String): String
     @JvmStatic private external fun nativeInvokeCommand(name: String, args: String): Boolean
     @JvmStatic private external fun nativeMenuSound(sound: Int)
