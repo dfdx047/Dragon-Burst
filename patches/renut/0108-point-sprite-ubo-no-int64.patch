@@ -1,0 +1,129 @@
+Burst Limit (28/10): point sprites sem shaderInt64 (swordman_renut_point_ubo; ligado sozinho quando o driver nao o tem).
+- Nos shaders do Renut so dois usam inteiros de 64 bits: o point_sprite_gs (le o SharedConstants pelo endereco no push
+  constant) e o bc_decode_cs (so criado sem BC nativo). Nenhum dos 150 shaders do jogo (SPIR-V sem OpCapability Int64).
+- point_sprite_ubo_gs.hlsl: o mesmo shader a ler o SharedConstants do UBO do set 7, como os shaders do jogo e como a
+  variante do deko3d ja fazia (com o Y invertido do Vulkan). video.cpp escolhe-o com SetPointSpriteUbo (a cola da app
+  chama-o antes de criar o device), tambem no caminho dos sets compactos.
+- plume: getDeviceAddress usa primeiro o vkGetBufferDeviceAddressKHR (driver Vulkan 1.1 da Qualcomm, com
+  VK_KHR_buffer_device_address: o trampolim do core 1.2 do loader do Android salta para uma entrada nula e o arranque
+  caia no UploadRing::AddChunk); sem nenhum, devolve 0.
+- Assim o Renut corre no driver da Qualcomm do Adreno 650 (sem shaderInt64, com BC), sem obrigar a um Turnip.
+
+diff --git a/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl b/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl
+--- a/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl
+@@ -25,16 +25,23 @@
+ // height and minimum and maximum size, at 1328 the size of the host viewport
+ // (what clip space spans), all in guest pixels (the host viewport is the
+ // render resolution scale times that, so sprites scale with it).
+-#if defined(__spirv__) && defined(BANJO_DEKO3D)
++#if defined(__spirv__) && (defined(BANJO_DEKO3D) || defined(RENUT_POINT_SPRITE_UBO))
+ // banjo-nx (deko3d renderer): SharedConstants as the game shaders read them (the dynamic UBO of set 7), and D3D's
+ // clip space (no -fvk-invert-y for deko3d).
++// Dragon Burst (point_sprite_ubo_gs.hlsl, swordman_renut_point_ubo): the same UBO on Vulkan, with no 64-bit address,
++// for drivers without shaderInt64 (Qualcomm's on the Adreno 650).
+ struct BanjoSharedConstants { float4 v[84]; };
+ [[vk::binding(0, 7)]] ConstantBuffer<BanjoSharedConstants> g_BanjoShared;
+ 
+ float4 PointState() { return g_BanjoShared.v[82]; }
+ float4 ViewportState() { return g_BanjoShared.v[83]; }
+ 
++#if defined(BANJO_DEKO3D)
+ static const float kUp = 1.0;
++#else
++// The vertex shaders' clip space has y flipped (-fvk-invert-y).
++static const float kUp = -1.0;
++#endif
+ #elif defined(__spirv__)
+ struct PushConstants
+ {
+diff --git a/app/src/renut_engine/gpu/backend/video.cpp b/app/src/renut_engine/gpu/backend/video.cpp
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -48,6 +48,7 @@
+ #include "host_shaders/present_vs.spirv.h"
+ #include "host_shaders/rectangle_list_gs.spirv.h"
+ #include "host_shaders/point_sprite_gs.spirv.h"
++#include "host_shaders/point_sprite_ubo_gs.spirv.h"  // Dragon Burst (swordman_renut_point_ubo)
+ #include "host_shaders/stream_convert_cs.spirv.h"
+ #include "host_shaders/bc_decode_cs.spirv.h"  // SwordMan (Android)
+ #include "host_shaders/target_readback_cs.spirv.h"
+@@ -344,6 +345,11 @@
+   return true;
+ }
+ 
++// Dragon Burst (swordman_renut_point_ubo): set by the app's glue before the device is made (SetPointSpriteUbo), true
++// when the driver has no shaderInt64 or the cvar asks for it.
++std::atomic<bool> g_point_sprite_ubo{false};
++bool PointSpriteUbo() { return g_point_sprite_ubo.load(std::memory_order_relaxed); }
++
+ // Optional: without geometry shaders rectangle lists stay triangle lists and
+ // point sprites single pixels.
+ void BuildRectangleListShader(VideoState &s) {
+@@ -356,10 +362,20 @@
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(rectangle_list_gs), "rectangle_list_gs");
+   s.point_sprite_gs =
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(point_sprite_gs), "point_sprite_gs");
++  // Dragon Burst: without shaderInt64 (or swordman_renut_point_ubo) the variant reading SharedConstants from set 7.
++  const bool point_ubo = IsVulkan() && PointSpriteUbo();
++  if (point_ubo && !DrawSetsCompact()) {
++    s.point_sprite_gs = s.device->createShader(g_point_sprite_ubo_gs_spirv, sizeof(g_point_sprite_ubo_gs_spirv), "main",
++                                               plume::RenderShaderFormat::SPIRV);
++  }
++  if (point_ubo)
++    RGPU_INFO("Point sprites: point_sprite_ubo_gs (SharedConstants from set 7, no shaderInt64)");
+   if (DrawSetsCompact() && IsVulkan()) {
+     // SwordMan (Android): it reads SharedConstants at set 7, renumbered with the draw shaders' (SetDrawSetsCompact).
+-    std::vector<uint32_t> words(sizeof(g_point_sprite_gs_spirv) / 4);
+-    std::memcpy(words.data(), g_point_sprite_gs_spirv, words.size() * 4);
++    const auto *spirv = point_ubo ? g_point_sprite_ubo_gs_spirv : g_point_sprite_gs_spirv;
++    const size_t bytes = point_ubo ? sizeof(g_point_sprite_ubo_gs_spirv) : sizeof(g_point_sprite_gs_spirv);
++    std::vector<uint32_t> words(bytes / 4);
++    std::memcpy(words.data(), spirv, words.size() * 4);
+     RemapDrawShaderSets(words.data(), words.size());
+     s.point_sprite_gs = s.device->createShader(words.data(), words.size() * 4, "main", plume::RenderShaderFormat::SPIRV);
+   }
+@@ -1366,3 +1382,8 @@
+ }
+ 
+ } // namespace renut::gpu
++
++namespace renut::gpu {
++// Dragon Burst (swordman_renut_point_ubo): called by the app's glue (renut_glue.cpp) before the device is made.
++void SetPointSpriteUbo(bool on) { g_point_sprite_ubo.store(on, std::memory_order_relaxed); }
++}  // namespace renut::gpu
+diff --git a/app/thirdparty/plume/plume_vulkan.cpp b/app/thirdparty/plume/plume_vulkan.cpp
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -1332,11 +1332,21 @@
+ 
+     uint64_t VulkanBuffer::getDeviceAddress() const {
+         assert((desc.flags & RenderBufferFlag::DEVICE_ADDRESSABLE) != 0 && "Buffer must have been created with GPU_ADDRESSABLE flag.");
++        // Dragon Burst: on a Vulkan 1.1 driver (Qualcomm's on the Adreno 650) bufferDeviceAddress comes from
++        // VK_KHR_buffer_device_address; Android's loader still hands out its 1.2 core trampoline, which jumps to the
++        // driver's missing entry, so the KHR entry point goes first. With neither, no address (the Renut reads its
++        // constants from UBOs there).
++        const PFN_vkGetBufferDeviceAddress getAddress =
++            vkGetBufferDeviceAddressKHR != nullptr ? vkGetBufferDeviceAddressKHR : vkGetBufferDeviceAddress;
++        if (!device->capabilities.bufferDeviceAddress || getAddress == nullptr) {
++            return 0;
++        }
++
+         VkBufferDeviceAddressInfo info;
+         info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+         info.pNext = nullptr;
+         info.buffer = vk;
+-        return vkGetBufferDeviceAddress(device->vk, &info);
++        return getAddress(device->vk, &info);
+     }
+ 
+     // VulkanBufferFormattedView
+diff --git a/app/src/renut_engine/gpu/shaders/host/point_sprite_ubo_gs.hlsl b/app/src/renut_engine/gpu/shaders/host/point_sprite_ubo_gs.hlsl
+new file mode 100644
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/point_sprite_ubo_gs.hlsl
+@@ -0,0 +1,4 @@
++// Dragon Burst (swordman_renut_point_ubo): point_sprite_gs reading SharedConstants from the uniform buffer of set 7,
++// as the game shaders do, instead of through the 64-bit address in the push constant: no shaderInt64.
++#define RENUT_POINT_SPRITE_UBO 1
++#include "point_sprite_gs.hlsl"

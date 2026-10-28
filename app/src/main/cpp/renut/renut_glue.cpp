@@ -318,6 +318,18 @@ void SwordManRenutShotOnSwap() {
 namespace plume {
 void SetAndroidClearFold(bool enabled);  // renut/0106 (o 0027 do Zandatsu)
 }
+namespace renut::gpu {
+void SetPointSpriteUbo(bool on);  // renut/0108
+}
+
+// O Renut sem shaderInt64 (o driver da Qualcomm no Adreno 650 nao o tem): nos shaders so o point_sprite_gs (endereco de
+// 64 bits do SharedConstants) e o bc_decode_cs (so sem BC nativo, ou seja na Mali) o usam. Sem ele, os point sprites
+// leem o SharedConstants do UBO do set 7 (renut/0108). Ligado, o Renut deixa de exigir shaderInt64 quando ha BC; por
+// omissao continua a exigi-lo, porque o driver da Qualcomm ainda cai no layout de 8 sets (so liga 4) e o jogo deve ir
+// para o Xenia.
+REXCVAR_DEFINE_BOOL(swordman_renut_point_ubo, false, "SwordMan",
+                    "Renut: point sprites a ler o SharedConstants do UBO e sem exigir shaderInt64 (teste do driver Qualcomm)")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(swordman_renut_clear_fold, true, "SwordMan",
                     "Renut: um clear do alvo inteiro antes do primeiro draw do passe abre o passe com loadOp CLEAR (a GPU "
                     "por blocos nao le o alvo da memoria); false = clear dentro do passe, como antes")
@@ -373,7 +385,10 @@ bool SwordManRenutDeviceSupported(std::string* why) {
       if (!ok) missing += std::string(" ") + what;
     };
     need(f12.bufferDeviceAddress, "bufferDeviceAddress");
-    need(f.features.shaderInt64, "shaderInt64");
+    // shaderInt64: com swordman_renut_point_ubo so para a descompressao BC por compute (sem BC nativo).
+    need(f.features.shaderInt64 || (REXCVAR_GET(swordman_renut_point_ubo) && f.features.textureCompressionBC),
+         "shaderInt64");
+    renut::gpu::SetPointSpriteUbo(REXCVAR_GET(swordman_renut_point_ubo) || !f.features.shaderInt64);
     need(f12.descriptorIndexing && f12.runtimeDescriptorArray && f12.descriptorBindingPartiallyBound &&
              f12.descriptorBindingVariableDescriptorCount && f12.descriptorBindingSampledImageUpdateAfterBind,
          "descriptorIndexing");
