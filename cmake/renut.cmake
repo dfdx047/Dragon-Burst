@@ -141,7 +141,7 @@ target_compile_definitions(mgr_renut_gpu PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_
 target_compile_options(mgr_renut_gpu PRIVATE -march=armv8.2-a -ffp-contract=off -fno-strict-aliasing)
 target_link_libraries(mgr_renut_gpu PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap)
 
-# Liga o Renut ao libmain.so (<alvo>) e diz ao codigo do jogo que ele existe (DB_RENUT).
+# Liga o Renut ao libgame.so (<alvo>) e diz ao codigo do jogo que ele existe (DB_RENUT).
 function(db_renut_setup TARGET)
     # adrenotools: o driver Vulkan do plume (renut_glue.cpp, plume_android_vulkan_library).
     target_link_libraries(${TARGET} PRIVATE mgr_renut_gpu adrenotools)

@@ -3,10 +3,13 @@
 # Compila o SDK ReXGlue do Burst Limit Recompiled (external/burstlimit/thirdparty/
 # rexglue-sdk, branch burstlimit, com os patches Android de patches/) e o jogo
 # recompilado (external/burstlimit, com o generated/default do codegen e os patches
-# de patches/game/) numa biblioteca libmain.so que o SDLActivity carrega.
+# de patches/game/) numa biblioteca libgame.so que o SDLActivity carrega (encriptada no APK; ver o fim deste
+# ficheiro).
 #
 # Resultado (todas em arm64-v8a, empacotadas no APK):
-#   libmain.so          jogo recompilado + codigo do Burst Limit Recompiled + glue Android
+#   libmain.so          carregador: le o default.xex do jogador (chave do libgame.so)
+#   libgame.so          jogo recompilado + codigo do Burst Limit Recompiled + Renut + shaders traduzidos + glue
+#                       Android; NAO vai no APK: so encriptado (assets/libgame.zdat, tools/pack-libgame.py)
 #   librexruntime.so    runtime ReXGlue (kernel, memoria, audio, input, UI, online)
 #   librexgpu-xenos.so  plugin da GPU Xenos (Vulkan)
 #   libSDL3.so          SDL3 (janela, eventos, audio, comandos)
@@ -158,9 +161,9 @@ target_link_libraries(burstlimit_recomp PRIVATE rex::runtime)
 target_precompile_headers(burstlimit_recomp PRIVATE "${BL_GENERATED}/burstlimit_pch.h")
 target_compile_options(burstlimit_recomp PRIVATE -march=armv8.2-a -ffp-contract=off)
 
-add_library(main SHARED ${BL_SOURCES} $<TARGET_OBJECTS:burstlimit_recomp>)
+add_library(game SHARED ${BL_SOURCES} $<TARGET_OBJECTS:burstlimit_recomp>)
 
-target_sources(main PRIVATE
+target_sources(game PRIVATE
     # Pausa do jogo por baixo dos menus do port (patches/game/0002).
     "${CMAKE_CURRENT_LIST_DIR}/android_hooks.cpp"
     # Estado do jogo para os controles por toque e o menu do port (JNI).
@@ -177,14 +180,14 @@ target_sources(main PRIVATE
 option(DB_D3D_TRACE "Hooks de rastreio da biblioteca D3D (logs/d3d_trace.log)" OFF)
 if(DB_D3D_TRACE)
     if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
-        target_sources(main PRIVATE "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
+        target_sources(game PRIVATE "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
     else()
         message(FATAL_ERROR "DB_D3D_TRACE ligado mas falta d3d_trace_hooks.cpp: corre "
             "python3 tools/d3d_map.py && python3 tools/d3d_trace_gen.py")
     endif()
 endif()
 
-target_include_directories(main PRIVATE
+target_include_directories(game PRIVATE
     "${BL_ROOT}"
     "${BL_ROOT}/src"
     "${BL_GENERATED}"
@@ -196,7 +199,7 @@ target_include_directories(main PRIVATE
     "${CMAKE_BINARY_DIR}/rexglue-sdk/include"
 )
 
-target_compile_options(main PRIVATE
+target_compile_options(game PRIVATE
     -fno-strict-aliasing
     -ffp-contract=off
 )
@@ -204,9 +207,9 @@ target_compile_options(main PRIVATE
 # Versao online: so ha salas entre builds iguais. Android joga com Android (o
 # runtime Vulkan e o x86 do PC podem divergir); o nome deixa isso claro.
 set(DB_ONLINE_VERSION "dragonburst-android" CACHE STRING "Versao online (salas so entre iguais)")
-target_compile_definitions(main PRIVATE "BURSTLIMIT_VERSION=\"${DB_ONLINE_VERSION}\"")
+target_compile_definitions(game PRIVATE "BURSTLIMIT_VERSION=\"${DB_ONLINE_VERSION}\"")
 
-target_link_libraries(main PRIVATE
+target_link_libraries(game PRIVATE
     rex::runtime
     rex::gpu-xenos
     imgui::imgui
@@ -215,32 +218,58 @@ target_link_libraries(main PRIVATE
 )
 # O jogo toca os sons dos menus pelo SDL3 (patches/game/0001).
 if(TARGET SDL3::SDL3-shared)
-    target_link_libraries(main PRIVATE SDL3::SDL3-shared)
+    target_link_libraries(game PRIVATE SDL3::SDL3-shared)
 elseif(TARGET SDL3::SDL3)
-    target_link_libraries(main PRIVATE SDL3::SDL3)
+    target_link_libraries(game PRIVATE SDL3::SDL3)
 endif()
 
 # Acrescenta windowed_app_main_sdl.cpp (com o SDL_main do Android) e
 # rex_app.cpp, e as opcoes de plataforma do SDK.
-rexglue_configure_target(main GPU_PLUGINS xenos)
+rexglue_configure_target(game GPU_PLUGINS xenos)
 
 # Renut: renderizador nativo de Direct3D do mgr-nx-deko (do Zandatsu), escolhido no arranque com
 # swordman_renderer = renut (padrao xenos). Shaders: tools/renut-shaders.sh. Mapa de hooks: docs/renut/.
 option(DB_RENUT "Compila o Renut (swordman_renderer = renut)" ON)
 if(DB_RENUT)
     include("${DB_REPO_ROOT}/cmake/renut.cmake")
-    db_renut_setup(main)
+    db_renut_setup(game)
 endif()
 
 # Alvo minimo: ARMv8.2-A (Snapdragon 865 / Cortex-A77 e A55 para cima, o que
 # inclui o Unisoc T770 do RG Cube). Fica depois do rexglue_configure_target, que
 # poe -march=armv8-a, para prevalecer.
-target_compile_options(main PRIVATE -march=armv8.2-a)
+target_compile_options(game PRIVATE -march=armv8.2-a)
 
-# Chamadas entre funcoes do proprio libmain.so sem PLT (do Zandatsu, "Codegen 1"): as sub_* do codigo gerado tem
+# Chamadas entre funcoes do proprio libgame.so sem PLT (do Zandatsu, "Codegen 1"): as sub_* do codigo gerado tem
 # visibilidade padrao e cada chamada entre elas passava por um stub do PLT e pelo GOT. Com -Bsymbolic-functions o
 # linker liga-as diretamente; os hooks fortes continuam a ganhar as definicoes fracas no link.
-option(DB_BSYMBOLIC "libmain.so com -Bsymbolic-functions" ON)
+option(DB_BSYMBOLIC "libgame.so com -Bsymbolic-functions" ON)
 if(DB_BSYMBOLIC)
-    target_link_options(main PRIVATE -Wl,-Bsymbolic-functions)
+    target_link_options(game PRIVATE -Wl,-Bsymbolic-functions)
 endif()
+
+#-----------------------------------------------------------------------------
+# libgame.so fora do APK (do Zandatsu). O codigo do jogo (gerado, hooks, Renut e os shaders traduzidos) so pode estar
+# no aparelho de quem tem o disco: o APK leva o libgame.so encriptado (AES-256-GCM, chave = SHA-256 da imagem PE do
+# default.xex) e o libmain.so, que no import le o default.xex do jogador (loader/xex_image.cpp) para o GameLib.kt
+# derivar a chave, desencriptar para getFilesDir() e o GameActivity carregar de la. Os hooks ficam no libgame.so
+# porque substituem as definicoes fracas sub_X no link (-Bsymbolic-functions); o runtime, o plugin da GPU e o SDL ja
+# sao .so a parte.
+#-----------------------------------------------------------------------------
+set(DB_XEX "${BL_ROOT}/game_data_root/default.xex" CACHE FILEPATH "default.xex do codegen (chave do libgame.so)")
+set(DB_PACK_DIR "${DB_REPO_ROOT}/app/build/dragonburst-assets")
+add_custom_command(
+    OUTPUT "${DB_PACK_DIR}/libgame.zdat" "${DB_PACK_DIR}/libgame.json"
+    COMMAND python3 "${DB_REPO_ROOT}/tools/pack-libgame.py" "$<TARGET_FILE:game>" "${CMAKE_STRIP}" "${DB_XEX}"
+            "${DB_PACK_DIR}"
+    DEPENDS game "${DB_REPO_ROOT}/tools/pack-libgame.py" "${CMAKE_CURRENT_LIST_DIR}/loader/xex_image.cpp" "${DB_XEX}"
+    COMMENT "libgame.so -> assets/libgame.zdat (encriptado)"
+    VERBATIM)
+add_custom_target(game_pack DEPENDS "${DB_PACK_DIR}/libgame.zdat" "${DB_PACK_DIR}/libgame.json")
+
+add_library(main SHARED "${CMAKE_CURRENT_LIST_DIR}/loader/game_lib_jni.cpp" "${CMAKE_CURRENT_LIST_DIR}/loader/xex_image.cpp")
+target_include_directories(main PRIVATE "${CMAKE_CURRENT_LIST_DIR}/loader" "${REXSDK_ROOT}/thirdparty")
+target_link_libraries(main PRIVATE mspack log)
+target_compile_options(main PRIVATE -march=armv8.2-a)
+# O Gradle so compila os alvos da lista (build.gradle.kts): o libgame.so e o pacote vem por aqui.
+add_dependencies(main game_pack)

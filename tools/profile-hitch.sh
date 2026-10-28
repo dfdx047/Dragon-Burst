@@ -40,7 +40,7 @@ adb shell rm -f /data/local/tmp/dbz3_hitch.perf.data
 adb logcat -d -s dbz3 > "$OUT/logcat.txt"
 
 # Tabelas de simbolos das bibliotecas com simbolos (antes de o Gradle as despir).
-for LIB in libmain.so librexruntime.so librexgpu-xenos.so; do
+for LIB in libgame.so librexruntime.so librexgpu-xenos.so; do
   FILE="$(find "$ROOT/app/build/intermediates/cxx/Release" -name "$LIB" -path '*arm64-v8a*' | head -1)"
   if [ -z "$FILE" ]; then
     echo "AVISO: $LIB com simbolos nao encontrada" >&2

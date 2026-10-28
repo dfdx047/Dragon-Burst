@@ -31,9 +31,9 @@ if [ -z "$PID" ]; then
 fi
 
 # Bibliotecas com simbolos (antes de o Gradle as despir para o APK).
-LIBMAIN="$(find "$ROOT/app/build/intermediates/cxx/Release" -name libmain.so -path '*arm64-v8a*' | head -1)"
+LIBMAIN="$(find "$ROOT/app/build/intermediates/cxx/Release" -name libgame.so -path '*arm64-v8a*' | head -1)"
 if [ -z "$LIBMAIN" ]; then
-  echo "ERRO: libmain.so com simbolos nao encontrada. Compila primeiro (./gradlew assembleRelease)." >&2
+  echo "ERRO: libgame.so com simbolos nao encontrada. Compila primeiro (./gradlew assembleRelease)." >&2
   exit 1
 fi
 SYMDIR="$(dirname "$LIBMAIN")"

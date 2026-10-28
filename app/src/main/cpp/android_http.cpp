@@ -35,7 +35,7 @@ JNIEnv* CurrentEnv() {
 
 }  // namespace
 
-// Chamado quando o SDL carrega a libmain.so (System.loadLibrary, thread Java com o
+// Chamado quando o GameActivity carrega a libgame.so (System.load, thread Java com o
 // class loader da app): e aqui que FindClass encontra as classes da app.
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
   g_vm = vm;

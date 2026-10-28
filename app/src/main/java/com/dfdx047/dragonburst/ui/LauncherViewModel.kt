@@ -25,6 +25,7 @@ import com.dfdx047.dragonburst.data.GameConfig
 import com.dfdx047.dragonburst.data.SaveFiles
 import com.dfdx047.dragonburst.data.GameFiles
 import com.dfdx047.dragonburst.data.GameInstall
+import com.dfdx047.dragonburst.data.GameLib
 import com.dfdx047.dragonburst.data.GameOrientation
 import com.dfdx047.dragonburst.data.ImportException
 import com.dfdx047.dragonburst.data.ImportProgress
@@ -267,6 +268,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         }
         is ImportProgress.Hashing -> Busy(R.string.busy_checking_xex, p.file, p.done.toFloat() / p.total.coerceAtLeast(1))
         is ImportProgress.Reading -> Busy(R.string.busy_reading_disc, p.file)
+        is ImportProgress.Unpacking -> Busy(R.string.busy_unpacking, "${p.done / (1 shl 20)} / ${p.total / (1 shl 20)} MB", p.done.toFloat() / p.total.coerceAtLeast(1))
     }
 
     /** Ultimo problema da importacao (fica no cartao dos arquivos ate a proxima). */
@@ -286,6 +288,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             ImportException.Reason.MODIFIED_XEX -> R.string.err_import_modified
             ImportException.Reason.TRUNCATED -> R.string.err_import_truncated
             ImportException.Reason.BAD_DATA -> R.string.err_import_bad_data
+            ImportException.Reason.UNSUPPORTED_VERSION -> R.string.err_import_unsupported
         }
         importIssue = res to e.detail.ifEmpty { "-" }
         say(
@@ -348,6 +351,20 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         viewModelScope.launch {
+            // O libgame.so deste APK (depois de uma atualizacao, ou de um import antigo).
+            val ok = withContext(Dispatchers.IO) {
+                if (GameLib.ready(context)) return@withContext true
+                try {
+                    GameLib.install(context) { p -> busy = importProgress(p) }
+                    true
+                } catch (e: ImportException) {
+                    importError(e)
+                    false
+                } finally {
+                    busy = null
+                }
+            }
+            if (!ok) return@launch
             withContext(Dispatchers.IO) { GameConfig.save(config) }
             context.startActivity(Intent(context, GameActivity::class.java).setAction(PLAY_ACTION))
         }

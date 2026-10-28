@@ -1,7 +1,7 @@
 package com.dfdx047.dragonburst.game
 
 /**
- * Estado do combate lido da memoria do jogo (game_state_jni.cpp, em libmain.so).
+ * Estado do combate lido da memoria do jogo (game_state_jni.cpp, em libgame.so).
  * Usado pelos botoes de ajuda que dependem do lado (ex.: carregar ki = defesa +
  * "para tras" duas vezes).
  */
@@ -57,7 +57,7 @@ object NativeGameState {
         return try {
             nativeMapFlag()
         } catch (e: UnsatisfiedLinkError) {
-            // libmain.so antiga sem esta funcao: so desliga a deteccao do mapa.
+            // libgame.so antiga sem esta funcao: so desliga a deteccao do mapa.
             -1
         }
     }
