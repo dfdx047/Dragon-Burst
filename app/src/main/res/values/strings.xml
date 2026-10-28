@@ -511,7 +511,7 @@
     <string name="menu_fps_detail_full">Full</string>
     <string name="aspect_widescreen_off">Widescreen: unavailable (%1$s)</string>
     <string name="aspect_widescreen_why_screen">this screen is already 16:9</string>
-    <string name="aspect_widescreen_why_renderer">needs the native renderer, not in this version yet</string>
+    <string name="aspect_widescreen_why_renderer">in Burst Limit the HUD does not follow it yet</string>
     <string name="gpu_first_device">This device: %1$s</string>
     <string name="gpu_first_suggest">Suggested: the %1$s preset (%2$s). You can change it any time in the Performance tab.</string>
     <string name="gpu_first_driver_system">Driver: the system one (Vulkan %1$s). Turnip is optional, in the Drivers tab; on the Adreno 740 the system driver was faster (60 against 30 FPS in a fight).</string>
@@ -529,4 +529,12 @@
     <string name="input_delay_original">Original (3 frames)</string>
     <string name="settings_drama">Drama Pieces</string>
     <string name="settings_drama_sub">The short cut-scenes that interrupt a fight (a partner stepping in, story moments). From the next fight.</string>
+    <string name="perf_renderer">Renderer</string>
+    <string name="perf_renderer_sub">Renut draws the game\'s Direct3D natively (lighter on the GPU); Xenia emulates the Xbox 360 GPU. Applies at the next start.</string>
+    <string name="perf_renderer_auto">Auto</string>
+    <string name="perf_renderer_uses_renut">This device starts in Renut. If the driver lacks what Renut needs, the game uses Xenia and the Drivers tab says why.</string>
+    <string name="perf_renderer_uses_xenia">This device starts in Xenia (Renut is only chosen automatically on Adreno and Mali-G57 class GPUs).</string>
+    <string name="perf_renderer_now_renut">Now: Renut. Changes apply at the next start.</string>
+    <string name="perf_renderer_now_xenia">Now: Xenia. Changes apply at the next start.</string>
+    <string name="perf_resolution_renut">Renut draws any of these heights, 1080p included, and changes it in the game menu without restarting.</string>
 </resources>

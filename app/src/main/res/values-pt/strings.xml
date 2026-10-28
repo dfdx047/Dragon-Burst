@@ -510,7 +510,7 @@
     <string name="menu_fps_detail_full">Completo</string>
     <string name="aspect_widescreen_off">Widescreen: indisponível (%1$s)</string>
     <string name="aspect_widescreen_why_screen">esta tela já é 16:9</string>
-    <string name="aspect_widescreen_why_renderer">precisa do renderizador nativo, ainda não nesta versão</string>
+    <string name="aspect_widescreen_why_renderer">no Burst Limit o HUD ainda não acompanha</string>
     <string name="gpu_first_device">Este aparelho: %1$s</string>
     <string name="gpu_first_suggest">Sugestão: a predefinição %1$s (%2$s). Pode mudar quando quiser na aba Desempenho.</string>
     <string name="gpu_first_driver_system">Driver: o do sistema (Vulkan %1$s). O Turnip é opcional, na aba Drivers; no Adreno 740 o do sistema foi mais rápido (60 contra 30 FPS na luta).</string>
@@ -528,4 +528,12 @@
     <string name="input_delay_original">Original (3 frames)</string>
     <string name="settings_drama">Drama Pieces</string>
     <string name="settings_drama_sub">As cenas curtas que interrompem a luta (um parceiro que entra, momentos da história). Vale a partir da próxima luta.</string>
+    <string name="perf_renderer">Renderizador</string>
+    <string name="perf_renderer_sub">O Renut desenha o Direct3D do jogo de forma nativa (mais leve na GPU); o Xenia emula a GPU do Xbox 360. Vale no próximo arranque.</string>
+    <string name="perf_renderer_auto">Auto</string>
+    <string name="perf_renderer_uses_renut">Este aparelho arranca no Renut. Se faltar ao driver algo que o Renut precisa, o jogo usa o Xenia e a aba Drivers diz porquê.</string>
+    <string name="perf_renderer_uses_xenia">Este aparelho arranca no Xenia (o Renut só é escolhido sozinho nas Adreno e nas Mali da classe da G57).</string>
+    <string name="perf_renderer_now_renut">Agora: Renut. Mudanças valem no próximo arranque.</string>
+    <string name="perf_renderer_now_xenia">Agora: Xenia. Mudanças valem no próximo arranque.</string>
+    <string name="perf_resolution_renut">O Renut desenha qualquer destas alturas, 1080p incluído, e muda-a no menu do jogo sem reiniciar.</string>
 </resources>

@@ -510,7 +510,7 @@
     <string name="menu_fps_detail_full">Completo</string>
     <string name="aspect_widescreen_off">Panorámico: no disponible (%1$s)</string>
     <string name="aspect_widescreen_why_screen">esta pantalla ya es 16:9</string>
-    <string name="aspect_widescreen_why_renderer">necesita el renderizador nativo, aún no en esta versión</string>
+    <string name="aspect_widescreen_why_renderer">en Burst Limit el HUD aún no lo acompaña</string>
     <string name="gpu_first_device">Este dispositivo: %1$s</string>
     <string name="gpu_first_suggest">Sugerido: el preajuste %1$s (%2$s). Puedes cambiarlo cuando quieras en la pestaña Rendimiento.</string>
     <string name="gpu_first_driver_system">Driver: el del sistema (Vulkan %1$s). Turnip es opcional, en la pestaña Drivers; en la Adreno 740 el del sistema fue más rápido (60 frente a 30 FPS en combate).</string>
@@ -528,4 +528,12 @@
     <string name="input_delay_original">Original (3 frames)</string>
     <string name="settings_drama">Drama Pieces</string>
     <string name="settings_drama_sub">Las escenas cortas que interrumpen el combate (un compañero que entra, momentos de la historia). Desde el próximo combate.</string>
+    <string name="perf_renderer">Renderizador</string>
+    <string name="perf_renderer_sub">Renut dibuja el Direct3D del juego de forma nativa (más ligero en la GPU); Xenia emula la GPU de la Xbox 360. Se aplica en el próximo inicio.</string>
+    <string name="perf_renderer_auto">Auto</string>
+    <string name="perf_renderer_uses_renut">Este dispositivo inicia en Renut. Si al driver le falta algo que Renut necesita, el juego usa Xenia y la pestaña Drivers dice por qué.</string>
+    <string name="perf_renderer_uses_xenia">Este dispositivo inicia en Xenia (Renut solo se elige solo en Adreno y en Mali de la clase de la G57).</string>
+    <string name="perf_renderer_now_renut">Ahora: Renut. Los cambios se aplican en el próximo inicio.</string>
+    <string name="perf_renderer_now_xenia">Ahora: Xenia. Los cambios se aplican en el próximo inicio.</string>
+    <string name="perf_resolution_renut">Renut dibuja cualquiera de estas alturas, 1080p incluido, y la cambia en el menú del juego sin reiniciar.</string>
 </resources>

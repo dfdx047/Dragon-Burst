@@ -383,19 +383,40 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
 
     private fun pct(x: Double) = "${(x * 100).roundToInt()}%"
 
+    /** O jogo desta sessao corre no Renut (pedido e o driver tinha o que ele precisa: renut_support.txt "ok"). */
+    private val renutActive: Boolean
+        get() = NativeGameState.getCvar("swordman_renderer") == "renut" && try {
+            java.io.File(AppPaths.appDir, "renut_support.txt").readLines().firstOrNull()?.trim() == "ok"
+        } catch (e: Exception) {
+            false
+        }
+
     private fun imageItems(): List<MenuItem> {
         val c = cfg
         val list = ArrayList<MenuItem>()
+        // Renderizador (28/10): a escolha vale no proximo arranque; o Renut muda a resolucao ao vivo.
+        val renut = renutActive
+        list += choice(
+            s(R.string.perf_renderer), s(if (renut) R.string.perf_renderer_now_renut else R.string.perf_renderer_now_xenia),
+            listOf(
+                "auto" to s(R.string.perf_renderer_auto),
+                "renut" to "Renut",
+                "xenos" to "Xenia",
+            ),
+            c.renderer, restart = true,
+        ) { v -> set(c.copy(renderer = v), emptyMap()) }
         list += choice(
             s(R.string.settings_resolution), s(R.string.perf_resolution_sub),
-            InternalResolution.entries.map { it to it.label }, c.resolution, restart = true,
+            InternalResolution.entries.filter { renut || it != InternalResolution.P1080 }.map { it to it.label },
+            c.resolution, restart = !renut,
         ) { v ->
             set(
                 c.copy(resolution = v),
                 mapOf(
                     "draw_resolution_scale_x" to "${v.scale}",
                     "draw_resolution_scale_y" to "${v.scale}",
-                    "draw_resolution_percent" to "${v.percent}",
+                    "draw_resolution_percent" to "${if (v.scale > 1) 100 else v.percent}",
+                    "sa2_render_height_handheld" to "${v.height}",
                 ),
             )
         }
@@ -444,7 +465,12 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         list += choice(
             s(R.string.settings_aspect_mode), null,
             listOf(true to s(R.string.aspect_original), false to s(R.string.aspect_stretch)), c.letterbox,
-        ) { v -> set(c.copy(letterbox = v), mapOf("present_letterbox" to v.toString())) }
+        ) { v ->
+            set(
+                c.copy(letterbox = v),
+                mapOf("present_letterbox" to v.toString(), "swordman_aspect" to if (v) "original" else "stretch"),
+            )
+        }
         // Widescreen (hor+) sempre visivel, com o motivo de nao se aplicar.
         list += MInfo(s(R.string.aspect_widescreen_off, s(
             if (DisplayRates.isWiderThan16x9(context)) R.string.aspect_widescreen_why_renderer

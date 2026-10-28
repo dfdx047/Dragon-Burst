@@ -74,12 +74,31 @@ data class GameConfig(
     val nativeLinearDepth: Boolean = true,    // dbz3_bl_native_linear_depth (render nativo: profundidade linear por compute)
     val nativeIntoTexture: Boolean = true,    // dbz3_render_into_texture (passo 4: passes direto na textura)
     val nativePostLite: Boolean = true,       // dbz3_resolve_dedupe + dbz3_skip_null_draws + dbz3_bl_native_post_lite (passo 3) + dbz3_bl_native_contour/_downsample/_blur/_glow_composite (3b)
+    // Renderizador (28/10, como no Zandatsu): auto = o Renut (Direct3D nativo, docs/renut) nas GPUs onde foi validado
+    // (RenutSupport.validatedGpu), senao o Xenia; renut / xenos = escolha do jogador. Se o driver nao tiver o que o
+    // Renut precisa, o jogo usa o Xenia nessa sessao e diz porque (renut_support.txt, ecra Drivers).
+    val renderer: String = "auto",
 ) {
+    /** O jogo arranca no Renut com estas opcoes (escolha + GPU). */
+    val useRenut: Boolean get() = renderer == "renut" || (renderer == "auto" && RenutSupport.validatedGpu())
+
+    /** sa2_render_height_handheld: a altura que o Renut desenha (360-2160; 1080p so ele faz). */
+    val renutHeight: Int get() = resolution.height
+
     /** Escala inteira (1 abaixo de 720p e em 720p, 2 em 1440p, 3 em 2160p). */
     val resolutionScale: Int get() = resolution.scale
 
     fun toToml(): Map<String, Any> = linkedMapOf(
         "gpu_plugin" to "xenos",
+        // Renut (28/10): renderizador nativo. As opcoes do Xenia abaixo ficam escritas (servem se o jogo voltar ao
+        // Xenia por falta de funcoes Vulkan). As do Renut: resolucao (sa2_render_height_handheld, ao vivo),
+        // proporcao (swordman_aspect), FPS e 120 interpolado (as mesmas frame_rate / dbz3_frame_interpolation /
+        // dbz3_frameskip, renut/0023 e 0025), filtro final (present_effect, renut/0019) e os efeitos do jogo (as
+        // mesmas cvars, renut/0104).
+        "swordman_renderer" to if (useRenut) "renut" else "xenos",
+        "swordman_renderer_choice" to renderer,
+        "sa2_render_height_handheld" to renutHeight,
+        "swordman_aspect" to if (letterbox) "original" else "stretch",
         "gpu_allow_invalid_fetch_constants" to true,
         // O launcher do APP substitui o ecra inicial do PC.
         "start_screen" to false,
@@ -88,7 +107,7 @@ data class GameConfig(
         "draw_resolution_scale_y" to resolution.scale.coerceIn(1, MAX_RESOLUTION_SCALE),
         // Abaixo de 720p (patch 0089, Vulkan): 67 = 858x483 ("480p"), 75 = 960x540. So vale com
         // a escala 1; 100 desliga.
-        "draw_resolution_percent" to resolution.percent,
+        "draw_resolution_percent" to if (resolution.scale > 1) 100 else resolution.percent,
         "present_effect" to presentEffect,
         "present_fsr_quality_mode" to fsrQuality,
         "present_fsr_sharpness_reduction" to fsrSharpness.coerceIn(0.0, 2.0),
@@ -189,6 +208,7 @@ data class GameConfig(
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
         val BUTTON_ICONS = listOf("auto", "xbox", "playstation", "switch")
         val INPUT_DELAYS = listOf("2", "3", "4", "5", "6", "8", "off")
+        val RENDERERS = listOf("auto", "renut", "xenos")
         const val MAX_RESOLUTION_SCALE = 3
 
         /** dbz3_frame_interpolation_quality para este aparelho (2 nas GPUs de Alto/Ultra). */
@@ -221,7 +241,8 @@ data class GameConfig(
                 else -> def
             }
             return GameConfig(
-                resolution = InternalResolution.from(
+                resolution = if (int("sa2_render_height_handheld", 0) == 1080) InternalResolution.P1080
+                else InternalResolution.from(
                     int("draw_resolution_scale_x", 1),
                     int("draw_resolution_percent", 100),
                 ),
@@ -287,6 +308,7 @@ data class GameConfig(
                 nativeLinearDepth = bool("dbz3_bl_native_linear_depth", d.nativeLinearDepth),
                 nativePostLite = bool("dbz3_resolve_dedupe", d.nativePostLite),
                 nativeIntoTexture = bool("dbz3_render_into_texture", d.nativeIntoTexture),
+                renderer = str("swordman_renderer_choice", d.renderer).let { if (it in RENDERERS) it else "auto" },
             )
         }
 
@@ -340,12 +362,14 @@ fun FrameMode.cvars(): Map<String, String> = mapOf(
  * draw_resolution_percent). Nao ha 1080p: seria 1,5x, que o renderizador nao faz (os render
  * targets ficam com o tamanho de 1x e 150% nao cabe neles).
  */
-enum class InternalResolution(val scale: Int, val percent: Int, val label: String) {
-    P480(1, 67, "480p"),
-    P540(1, 75, "540p"),
-    P720(1, 100, "720p"),
-    P1440(2, 100, "2K"),
-    P2160(3, 100, "4K");
+enum class InternalResolution(val scale: Int, val percent: Int, val label: String, val height: Int) {
+    P480(1, 67, "480p", 480),
+    P540(1, 75, "540p", 540),
+    P720(1, 100, "720p", 720),
+    // So no Renut (sa2_render_height_handheld = 1080, escala 3/2); o Xenia so faz escalas inteiras (fica 2K).
+    P1080(2, 75, "1080p", 1080),
+    P1440(2, 100, "2K", 1440),
+    P2160(3, 100, "4K", 2160);
 
     /** Pixeis em relacao a 720p (0,44 em 480p, 4 em 1440p). */
     val pixelFactor: Double get() = scale * scale * (percent / 100.0) * (percent / 100.0)
@@ -353,6 +377,7 @@ enum class InternalResolution(val scale: Int, val percent: Int, val label: Strin
     companion object {
         fun from(scale: Int, percent: Int): InternalResolution = when {
             scale >= 3 -> P2160
+            scale == 2 && percent < 90 -> P1080
             scale == 2 -> P1440
             percent <= 70 -> P480
             percent < 90 -> P540
@@ -465,5 +490,27 @@ fun recommendedPreset(): GraphicsPreset {
         has("S5E9925", "S5E9945", "S5E9955") -> GraphicsPreset.HIGH
         has("GS101", "GS201", "ZUMA", "TENSOR") -> GraphicsPreset.BALANCED
         else -> GraphicsPreset.LIGHT
+    }
+}
+
+/**
+ * Onde o Renut foi validado (28/10): Adreno (RP5 650, Odin 2 Mini 740, com Turnip quando o driver do sistema nao tem
+ * shaderInt64) e Mali Valhall (RG Cube, Mali-G57). Fora disso o "auto" fica no Xenia e o Renut so por escolha. A
+ * Adreno 710/720 com o driver do sistema da SIGBUS ao abrir o Renut (Zandatsu): ficam no Xenia.
+ */
+object RenutSupport {
+    fun validatedGpu(): Boolean {
+        if (com.dfdx047.dragonburst.drivers.DriverRepository.isAdreno()) {
+            val adreno = com.dfdx047.dragonburst.drivers.TurnipSupport.detect().adreno
+            return adreno !in 710..722
+        }
+        val soc = ((if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL ?: "" else "") + " " +
+            android.os.Build.HARDWARE + " " + android.os.Build.BOARD).uppercase(java.util.Locale.ROOT)
+        // Mali-G57 (Unisoc T7xx/T8xx, Dimensity 700-1080), G68/G77/G78 e G6xx/G7xx (Dimensity 1100+, Tensor).
+        return listOf(
+            "T820", "T770", "T760", "T750", "UMS9620", "MT6877", "MT6875", "MT6873", "MT6855", "MT6853", "MT6833",
+            "MT6879", "MT6893", "MT6891", "MT6886", "MT6983", "MT6985", "MT6989", "MT6991", "MT6895", "MT6896",
+            "MT6897", "GS101", "GS201", "ZUMA",
+        ).any { it in soc }
     }
 }

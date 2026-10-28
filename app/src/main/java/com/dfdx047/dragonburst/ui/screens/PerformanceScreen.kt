@@ -130,6 +130,23 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             }
             Text(stringResource(R.string.settings_api_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             HorizontalDivider()
+            // Renderizador (28/10): Renut (Direct3D nativo) ou Xenia (GPU do Xbox emulada).
+            SettingSegmented(
+                title = stringResource(R.string.perf_renderer),
+                subtitle = stringResource(R.string.perf_renderer_sub),
+                options = listOf(
+                    "auto" to stringResource(R.string.perf_renderer_auto),
+                    "renut" to "Renut",
+                    "xenos" to "Xenia",
+                ),
+                selected = c.renderer,
+                onSelect = { v -> vm.updateConfig { it.copy(renderer = v) } },
+            )
+            StatusLine(
+                stringResource(if (c.useRenut) R.string.perf_renderer_uses_renut else R.string.perf_renderer_uses_xenia),
+                Level.INFO,
+            )
+            HorizontalDivider()
             // frame_rate: o Burst Limit e um jogo de 30 FPS; o patch do PC leva-o a 60. Os 120 (o jogo
             // a 120, ou a 60 com um quadro gerado entre cada dois - patch 0092) so com tela de 120 Hz.
             val context = LocalContext.current
@@ -171,12 +188,12 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             SettingSegmented(
                 title = stringResource(R.string.settings_resolution),
                 subtitle = stringResource(R.string.perf_resolution_sub),
-                options = InternalResolution.entries.map { r -> r to r.label },
+                options = InternalResolution.entries.filter { c.useRenut || it != InternalResolution.P1080 }.map { r -> r to r.label },
                 selected = c.resolution,
                 onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
             )
             Text(
-                stringResource(R.string.perf_resolution_no_1080),
+                stringResource(if (c.useRenut) R.string.perf_resolution_renut else R.string.perf_resolution_no_1080),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
