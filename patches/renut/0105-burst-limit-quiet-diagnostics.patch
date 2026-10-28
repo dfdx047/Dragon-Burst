@@ -1,0 +1,93 @@
+Dragon Burst (2026-10-28): the Burst Limit diagnostics only with the draw log.
+
+[db-decl] (registered declarations, the declaration each vertex shader draws with) and [db-tex] (guest formats first
+sampled) log only with banjo_renut_diag_draw_log_s, as [db-ramp] and the c255 lines already did: the normal path
+logs none of them and skips the per-draw set lookup. The unregistered-declaration warning stays. With the draw
+log on, the first draw of each pixel shader is logged too (a census, for effects that come and go).
+
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+@@ -33,6 +33,10 @@
+ #include "renut_engine/gpu/render/shader_library.h"
+ #include "renut_engine/gpu/backend/video.h"
+ 
++#include <rex/cvar.h>
++
++REXCVAR_DECLARE(int32_t, banjo_renut_diag_draw_log_s);  // Dragon Burst: draw.cpp
++
+ using namespace renut::gpu;
+ 
+ namespace {
+@@ -289,7 +293,7 @@
+   if (declaration->elements.empty())
+     return nullptr;
+   BuildDeclarationLayout(*declaration);
+-  {
++  if (REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0) {  // Dragon Burst (diagnostic)
+     static uint32_t logged = 0;
+     if (logged++ < 16)
+       RGPU_INFO("[db-decl] vertex shader {:08X}: {} inputs from its bound vfetches, stream 0 stride {}", vs_va,
+@@ -564,7 +568,7 @@
+   for (u32 i = 0; i < 64 && u32(elements[i].Stream) != 0xFF && u32(elements[i].Type) != kDeclTypeUnused; ++i)
+     declaration->elements.push_back(elements[i]);
+   BuildDeclarationLayout(*declaration);
+-  {  // Dragon Burst (diagnostic)
++  if (REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0) {  // Dragon Burst (diagnostic)
+     static uint32_t logged = 0;
+     if (logged++ < 8)
+       RGPU_INFO("[db-decl] registered {:08X}: {} elements, used mask {:X}", declaration_va,
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -2098,10 +2098,15 @@
+ // memo entry's on a hit, the bind's otherwise) and 'all_memo' whether every bound slot went through the memo (a
+ // texture header to key it), for the chain's reuse of the next draw.
+ // The two frames banjo_renut_diag_draw_log_s logs (DrawLog; Dragon Burst: FillTextures's [drawlog] texture lines too).
++// Dragon Burst (2026-10-28): with the draw log on, the first draw of each pixel shader is logged too (a census of
++// the shaders and textures a session draws with, for effects that come and go).
++bool g_draw_log_census = false;
+ bool DrawLogFrameLocked() {
+   static const int32_t at = REXCVAR_GET(banjo_renut_diag_draw_log_s);
+   if (at <= 0)
+     return false;
++  if (g_draw_log_census)
++    return true;
+   static const auto start = std::chrono::steady_clock::now();
+   static uint64_t first_frame = 0;
+   const uint64_t frame = TextureFrameLocked();
+@@ -4253,6 +4258,10 @@
+       ps && ps->ucode_hash ? rex::graphics::FindPixelShaderDrawOverride(ps->ucode_hash) : nullptr;
+   if (ps_override && ps_override->skip)
+     return true;
++  if (REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0) {
++    static std::unordered_set<uint64_t> census;
++    g_draw_log_census = ps && census.size() < 1024 && census.insert(ps->hash).second;
++  }
+   // Without a declaration set, the shader fetches as D3DVertexShader_Bind
+   // bound it, or else as its own vfetches describe (bundle meshes).
+   const VertexDeclarationRecord *declaration = nullptr;
+@@ -4309,7 +4318,7 @@
+   } else {
+     declaration = &NoDeclaration();
+   }
+-  {  // Dragon Burst (diagnostic): the declaration each vertex shader draws with, once
++  if (REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0) {  // Dragon Burst (diagnostic): each VS's declaration, once
+     static std::unordered_set<uint64_t> seen;
+     if (vs && seen.size() < 24 && seen.insert(vs->hash).second)
+       RGPU_INFO("[db-decl] vs {:016X}: declaration {:08X} ({}), used mask {:X}", vs->hash, declaration_va,
+diff --git a/app/src/renut_engine/gpu/render/textures.cpp b/app/src/renut_engine/gpu/render/textures.cpp
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -654,8 +654,9 @@
+   t.mip_levels = render_target ? 1 : std::min(fetch.MaxMipLevel() + 1, size_levels);
+   t.render_target = render_target;
+   plume::RenderFormat format = render_target ? rt_format : t.info.host;
+-  // Dragon Burst (2026-10-27): the guest formats Burst Limit samples, once each, and those with no host format.
+-  if (!render_target) {
++  // Dragon Burst (2026-10-27): the guest formats Burst Limit samples, once each, and those with no host format (with
++  // the draw log on).
++  if (!render_target && REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0) {
+     static std::atomic<uint64_t> seen{0};
+     const u32 guest = u32(fetch.Format()) & 63;
+     if (!(seen.fetch_or(uint64_t(1) << guest) & (uint64_t(1) << guest)))

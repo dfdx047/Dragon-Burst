@@ -162,3 +162,49 @@ Cube, mesma cena (luta Goku x Krillin 120 s, campanha "Saiyan Arrival" 180 s com
 | Campanha | 33,6 fps (min 27,4), GPU 29,5 ms, pior frame 150 ms | 37,9 fps (min 33,6), GPU 25,8 ms |
 
 Titulo, menu, luta, campanha com cutscene: sem travar nem `device lost`. Mesmo defeito do cabelo que no Odin.
+
+## F3: matriz de testes (2026-10-28, 03:00-04:00 Lisboa)
+
+Luta CPU x CPU Goku x Krillin (Plains) 120 s e campanha "Saiyan Arrival" 180 s (duas cutscenes), medidas do log do
+jogo: fps de jogo (media e minimo das janelas de 5/10 s), GPU ms por frame, e o tempo de CPU que o log tem (Renut:
+render thread por frame; Xenia: `cp_wait` por frame). O CPU ms da thread principal so aparece no overlay (fotos).
+
+| Aparelho, caminho, driver | Luta: fps med / min, GPU ms, CPU ms | Campanha: fps med / min, GPU ms |
+|---|---|---|
+| Odin, Renut, Qualcomm (sistema) | nao arranca: `Renut: o driver nao tem shaderInt64; a usar o Xenia` (fica o Xenia; aviso no ecra Drivers) | - |
+| Odin, Renut, Turnip 26.3 | 60,0 / 60,0, GPU 3,3, render thread 1,1 | 60,0 / 59,8, GPU 3,8 |
+| Odin, Xenia, Qualcomm | 34,3 / 29,8, GPU 25,7, cp_wait 9,4, pior frame 66 ms | 34,3 / 29,5, GPU 25,6, pior 84 ms |
+| Odin, Xenia, Turnip 26.3 | 38,8 / 30,5, GPU 21,9, cp_wait 10,2, pior 50 ms | 35,6 / 30,4, GPU 24,0, pior 50 ms |
+| Cube, Renut, Mali (sistema) | 37,7 / 33,6, GPU 25,5, render thread 3,6 | 37,9 / 33,6, GPU 25,8 |
+| Cube, Xenia, Mali | 31,7 / 27,1, GPU 31,2, cp_wait 9,3, pior 150 ms | 33,6 / 27,4, GPU 29,5, pior 150 ms |
+
+O Odin esteve sempre quente (CPU 93-95 graus no overlay, no carregador): o Xenia mediu 34-39 fps, abaixo dos 59,8 do
+M3. **Perfil 480+: bloqueado.** O `PServerBinder` existe (`service check`: found) mas o hlprofile recebe
+`DeadObjectException: Transaction failed on small parcel`; sem root nao ha como limitar CPU/GPU, e reiniciar perderia o
+adb por Wi-Fi (so volta por cabo, proibido). Nenhum numero do 480+.
+
+**dmesg.** Sem hangs da GPU nos dois. No Odin com o Turnip: `kgsl kgsl-3d0: CP: AHB bus error` ~120 por minuto
+(limitado pelo log), no Xenia e no Renut, durante toda a sessao com o Turnip (02:51-03:02 e desde 03:12); zero com o
+driver do sistema (03:03-03:12). Nao trava nem baixa o fps: e do Turnip neste aparelho, nao do Renut.
+
+**Regressao Renut.** Odin (Turnip) e Cube: titulo, dialogo do save (carregado no arranque), menu principal, Versus,
+escolha do cenario, luta de varios rounds (fim de round com a fala do vencedor, "PLAYER 2 WINS!" no Odin e a luta
+seguinte depois do A), campanha com duas cutscenes. Sem `device lost`, sem travar, sem retrato. Nao chegou a uma
+transicao de mapa da campanha (os 180 s acabam dentro da primeira luta).
+
+Defeito novo (visto no Odin, duas vezes em 480 s; nas fotos do Cube nao calhou): num golpe especial aparecem quadrados vermelhos e verdes solidos (particulas aditivas
+desenhadas como quads cheios). Ver abaixo.
+
+Quadrados: o censo do drawlog (`patches/renut/0105`: com `banjo_renut_diag_draw_log_s` o primeiro draw de cada PS
+fica no log) mostra os PS das particulas, todos DrawVerticesUP com blend aditivo (`00010106`, src alpha + one):
+`46D3C37E` (cor do vertice x textura 64x64 8888 em 1182D000, escreve profundidade), `A08CA5F4`, `15B2691F`,
+`B61AE365`. Todos com textura ligada. Com `banjo_renut_cpu_memos = false` (para ver os slots) nao apareceu em 480 s,
+mas o efeito e raro: nao prova nada. Proximo passo: drawlog nesse golpe (gravar com o drawlog continuo so desses PS) e
+comparar com o Xenia.
+
+## F4: limpeza (2026-10-28, 04:10 Lisboa)
+
+`patches/renut/0105`: os diagnosticos `[db-decl]` e `[db-tex]` (0101-0103) so com `banjo_renut_diag_draw_log_s`, como
+o `[db-ramp]` e o c255 do 0104; o caminho normal nao escreve nenhum (0 linhas no log da luta, Odin e Cube) nem faz a
+procura num set em cada draw. O aviso de declaracao nao registada fica. Regressao final com o build do 0105: Odin
+(Turnip) 60,0 fps (min 59,9), GPU 3,8 ms; Cube 37,6 fps (min 34,2), GPU 25,3 ms.
