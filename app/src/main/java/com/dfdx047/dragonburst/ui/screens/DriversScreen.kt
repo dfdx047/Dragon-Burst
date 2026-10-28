@@ -66,7 +66,8 @@ fun DriversScreen(vm: LauncherViewModel) {
     LaunchedEffect(Unit) {
         vm.refreshDrivers()
         vm.refreshTurnipBisect()
-        if (vm.driverReleases.isEmpty() && !vm.driverReleasesLoading) vm.loadDriverReleases()
+        // As listas para baixar sao todas de Turnip (so Adreno): na Mali e nas outras GPUs fica so o importar.
+        if (vm.isAdreno && vm.driverReleases.isEmpty() && !vm.driverReleasesLoading) vm.loadDriverReleases()
     }
 
     LazyColumn(
@@ -128,7 +129,7 @@ fun DriversScreen(vm: LauncherViewModel) {
                 Text(stringResource(R.string.drivers_restart_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        item {
+        if (vm.isAdreno) item {
             // Testes A/B dos glitches do Turnip nos Adreno 6xx (RP5): cada opcao liga um
             // conjunto de correcoes no arranque do jogo (GameActivity.applyTurnipCompat).
             SectionCard(stringResource(R.string.turnip_compat_title), Icons.Filled.Build, subtitle = stringResource(R.string.turnip_compat_sub)) {
@@ -171,7 +172,7 @@ fun DriversScreen(vm: LauncherViewModel) {
                 )
             }
         }
-        item {
+        if (vm.isAdreno) item {
             SectionCard(stringResource(R.string.drivers_download_title), Icons.Filled.CloudDownload, subtitle = stringResource(R.string.drivers_download_sub)) {
                 SettingSegmented(
                     title = stringResource(R.string.drivers_source),
@@ -198,7 +199,7 @@ fun DriversScreen(vm: LauncherViewModel) {
                 }
             }
         }
-        items(vm.driverReleases, key = { "${it.source.owner}/${it.tag}" }) { r ->
+        if (vm.isAdreno) items(vm.driverReleases, key = { "${it.source.owner}/${it.tag}" }) { r ->
             ReleaseCard(r, enabled = vm.busy == null) { vm.downloadDriver(it) }
         }
     }

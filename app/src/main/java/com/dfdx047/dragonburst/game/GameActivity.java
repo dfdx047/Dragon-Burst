@@ -570,6 +570,14 @@ public class GameActivity extends SDLActivity {
             }
             autoTuDebug = env.containsKey("TU_DEBUG") ? env.get("TU_DEBUG") : "";
         }
+        if (!custom) {
+            // Com o driver do sistema as correcoes do Turnip nao se aplicam: o TU_DEBUG/IR3 nao lhe dizem nada e as
+            // outras (BC descomprimido, passes simples, profundidade f32, buffer unico) so trocavam caminhos do
+            // runtime. Issue #3: flags 531 (sysmem...) ficaram ligadas de um teste com o Turnip e seguiram com o
+            // driver da Qualcomm.
+            if (flags != 0) Log.i(TAG, "Correcoes do Turnip ignoradas: driver do sistema (flags " + flags + ")");
+            return;
+        }
         if (flags == 0 && autoTuDebug.isEmpty()) {
             return;
         }

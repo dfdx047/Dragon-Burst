@@ -82,7 +82,8 @@ public final class TurnipSupport {
             {"SM8350", 660, "a6xx", Level.STABLE, MAINLINE, ""},
             {"SM7325", 642, "a6xx", Level.STABLE, MAINLINE, ""},
             {"SM7350", 642, "a6xx", Level.STABLE, MAINLINE, ""},
-            {"SM8250", 650, "a6xx", Level.STABLE, "MrPurple T19, K11MCH1 v24.3.0 R9", ""},
+            // SM8250: o K11MCH1 v24.3.0 R9 ("Revision 9v2") dava ecra preto com som no S20 FE (issue #3); T29 funciona la.
+            {"SM8250", 650, "a6xx", Level.STABLE, "MrPurple T19–T29", ""},
             {"SM8150", 640, "a6xx", Level.STABLE, MAINLINE, ""},
             {"SM7250", 620, "a6xx", Level.STABLE, MAINLINE, ""},
             {"SM7225", 619, "a6xx", Level.STABLE, MAINLINE, ""},

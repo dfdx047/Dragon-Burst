@@ -123,7 +123,7 @@
     <string name="msg_textures_refused">%1$d adicionada(s), %2$d recusada(s). Ex.: %3$s: %4$s</string>
     <string name="drivers_device">Este aparelho</string>
     <string name="drivers_adreno_hint">GPU Adreno: os drivers Turnip (Mesa) são suportados. Experimente um se a imagem ficar errada com o driver do sistema.</string>
-    <string name="drivers_not_adreno">Não é uma GPU Adreno: drivers personalizados não se aplicam, usa-se o do sistema.</string>
+    <string name="drivers_not_adreno">Não é uma GPU Adreno: as listas para baixar são de Turnip (só Adreno), por isso usa-se o driver do sistema. Um driver Vulkan feito para esta GPU ainda pode ser importado (.zip / .so).</string>
     <string name="drivers_active_title">Driver em uso</string>
     <string name="drivers_use_system">Usar o do sistema</string>
     <string name="drivers_import">Importar .zip / .so</string>
@@ -521,6 +521,7 @@
     <string name="gpu_first_choose">Escolher eu mesmo</string>
     <string name="gpu_lost_title">A GPU parou</string>
     <string name="gpu_lost_text">O driver gráfico deixou de responder durante o jogo, por isso o jogo voltou aqui em vez de fechar. O que o jogo já tinha guardado fica guardado (ele guarda depois das lutas e das mudanças de opções).\n\nSe voltar a acontecer, experimente outro driver na aba Drivers.</string>
+    <string name="gpu_lost_text_other">O driver gráfico deixou de responder durante o jogo, por isso o jogo voltou aqui em vez de fechar. O que o jogo já tinha guardado fica guardado (ele guarda depois das lutas e das mudanças de opções).\n\nSe voltar a acontecer, experimente um perfil gráfico mais leve (Leve ou Mínimo) na aba Desempenho e envie os logs (Exportar logs) numa issue no GitHub.</string>
     <string name="gpu_lost_ok">OK</string>
     <string name="settings_offline_delay">Atraso dos comandos</string>
     <string name="settings_offline_delay_sub">Lutas offline. Original: os 3 frames do próprio jogo (50 ms), como no Xbox 360. Reduzido: o toque age no frame seguinte. Vale a partir da próxima luta.</string>

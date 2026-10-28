@@ -124,7 +124,7 @@
     <string name="msg_textures_refused">%1$d added, %2$d refused. E.g. %3$s: %4$s</string>
     <string name="drivers_device">This device</string>
     <string name="drivers_adreno_hint">Adreno GPU: Turnip (Mesa) drivers are supported. Try one if the image looks wrong with the system driver.</string>
-    <string name="drivers_not_adreno">Not an Adreno GPU: custom drivers do not apply, the system driver is used.</string>
+    <string name="drivers_not_adreno">Not an Adreno GPU: the driver lists to download are Turnip (Adreno only), so the system driver is used. A Vulkan driver made for this GPU can still be imported (.zip / .so).</string>
     <string name="drivers_active_title">Driver in use</string>
     <string name="drivers_use_system">Use system driver</string>
     <string name="drivers_import">Import .zip / .so</string>
@@ -522,6 +522,7 @@
     <string name="gpu_first_choose">Choose myself</string>
     <string name="gpu_lost_title">The GPU stopped</string>
     <string name="gpu_lost_text">The graphics driver stopped responding during the game, so the game returned here instead of closing. What the game had saved is kept (it saves after fights and option changes).\n\nIf it happens again, try another driver in the Drivers tab.</string>
+    <string name="gpu_lost_text_other">The graphics driver stopped responding during the game, so the game returned here instead of closing. What the game had saved is kept (it saves after fights and option changes).\n\nIf it happens again, try a lighter graphics preset (Light or Minimum) in the Performance tab, and send the logs (Export logs) in an issue on GitHub.</string>
     <string name="gpu_lost_ok">OK</string>
     <string name="settings_offline_delay">Input delay</string>
     <string name="settings_offline_delay_sub">Offline fights. Original: the game\'s own 3 frames (50 ms), as on the Xbox 360. Reduced: a press acts on the next frame. From the next fight.</string>

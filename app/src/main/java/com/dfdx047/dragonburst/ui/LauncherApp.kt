@@ -152,7 +152,7 @@ fun LauncherApp(vm: LauncherViewModel) {
     }
 
     if (vm.showGpuNotice) GpuNotice(vm, openTab = { tab = it })
-    if (vm.showGpuLost) GpuLostDialog(vm, openDrivers = { tab = LauncherTab.DRIVERS })
+    if (vm.showGpuLost) GpuLostDialog(vm, openTab = { tab = it })
     if (vm.showUpdateDialog) UpdateDialog(vm)
 }
 
@@ -335,20 +335,22 @@ private fun GpuNotice(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
 
 /** O jogo perdeu a GPU (SDK 0188) e voltou aqui em vez de fechar. */
 @Composable
-private fun GpuLostDialog(vm: LauncherViewModel, openDrivers: () -> Unit) {
+private fun GpuLostDialog(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
+    // Trocar de driver so e conselho nas Adreno (Turnip); nas outras GPUs o que ha para mexer sao os graficos.
+    val adreno = vm.isAdreno
     AlertDialog(
         onDismissRequest = { vm.dismissGpuLost() },
         icon = { Icon(Icons.Filled.Memory, null) },
         title = { Text(stringResource(R.string.gpu_lost_title)) },
-        text = { Text(stringResource(R.string.gpu_lost_text)) },
+        text = { Text(stringResource(if (adreno) R.string.gpu_lost_text else R.string.gpu_lost_text_other)) },
         confirmButton = {
             TextButton(onClick = { vm.dismissGpuLost() }) { Text(stringResource(R.string.gpu_lost_ok)) }
         },
         dismissButton = {
             TextButton(onClick = {
                 vm.dismissGpuLost()
-                openDrivers()
-            }) { Text(stringResource(R.string.tab_drivers)) }
+                openTab(if (adreno) LauncherTab.DRIVERS else LauncherTab.PERFORMANCE)
+            }) { Text(stringResource(if (adreno) R.string.tab_drivers else R.string.tab_performance)) }
         },
     )
 }

@@ -123,7 +123,7 @@
     <string name="msg_textures_refused">%1$d añadidas, %2$d rechazadas. Ej.: %3$s: %4$s</string>
     <string name="drivers_device">Este dispositivo</string>
     <string name="drivers_adreno_hint">GPU Adreno: se admiten los drivers Turnip (Mesa). Prueba uno si la imagen se ve mal con el driver del sistema.</string>
-    <string name="drivers_not_adreno">No es una GPU Adreno: los drivers personalizados no se aplican, se usa el driver del sistema.</string>
+    <string name="drivers_not_adreno">No es una GPU Adreno: las listas para descargar son de Turnip (solo Adreno), así que se usa el driver del sistema. Un driver Vulkan hecho para esta GPU aún se puede importar (.zip / .so).</string>
     <string name="drivers_active_title">Driver en uso</string>
     <string name="drivers_use_system">Usar driver del sistema</string>
     <string name="drivers_import">Importar .zip / .so</string>
@@ -521,6 +521,7 @@
     <string name="gpu_first_choose">Elegir yo mismo</string>
     <string name="gpu_lost_title">La GPU se detuvo</string>
     <string name="gpu_lost_text">El driver gráfico dejó de responder durante el juego, así que el juego volvió aquí en lugar de cerrarse. Lo que el juego ya había guardado se conserva (guarda después de los combates y de los cambios de opciones).\n\nSi vuelve a pasar, prueba otro driver en la pestaña Drivers.</string>
+    <string name="gpu_lost_text_other">El driver gráfico dejó de responder durante el juego, así que el juego volvió aquí en lugar de cerrarse. Lo que el juego ya había guardado se conserva (guarda después de los combates y de los cambios de opciones).\n\nSi vuelve a pasar, prueba un perfil gráfico más ligero (Ligero o Mínimo) en la pestaña Rendimiento y envía los logs (Exportar logs) en una issue en GitHub.</string>
     <string name="gpu_lost_ok">OK</string>
     <string name="settings_offline_delay">Retraso de los controles</string>
     <string name="settings_offline_delay_sub">Combates sin conexión. Original: los 3 frames del propio juego (50 ms), como en Xbox 360. Reducido: la pulsación actúa en el frame siguiente. Desde el próximo combate.</string>
