@@ -1,0 +1,233 @@
+Dragon Burst (2026-10-28): Burst Limit post effects off on the Renut as on the emulated path.
+
+The pixel shaders carry the emulated path's ucode hash (HashShaderUcode, the XXH3 of the microcode as Xenia hashes
+it); the draw overrides keyed by it (burstlimit_patches.cpp: depth_of_field, glow_blur, motion_blur, soft_filter)
+drop the draws or replace pixel constants, so the background is as sharp as on the emulated path. Diagnostics, only
+with banjo_renut_diag_draw_log_s: the logged draws name the pixel shader c255 (device, literal, upload) and the
+toon shaders' c0-c8; the 256x256 DXT1 ramps and wide DXT5 textures log their first blocks once ([db-ramp]).
+
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+@@ -367,6 +367,7 @@
+   shader->x360.resource.ReferenceCount = 1u;
+ 
+   shader->hash = HashShaderContainer(container);
++  shader->ucode_hash = HashShaderUcode(container);
+   shader->entry = FindShaderEntry(shader->hash);
+   if (!shader->entry)
+     CaptureMissingShader(container, pixel, shader->hash);
+@@ -399,13 +400,14 @@
+   std::memcpy(container.data(), header, virtual_size);
+   std::memcpy(container.data() + virtual_size, physical, physical_size);
+   const uint64_t hash = HashShaderContainer(container.data());
++  const uint64_t ucode_hash = HashShaderUcode(container.data());
+   const RecordKind kind = pixel ? RecordKind::PixelShader : RecordKind::VertexShader;
+   // Captured here, where its container is at hand, only when the cache lacks it.
+   if (!FindShaderEntry(hash))
+     CaptureMissingShader(container.data(), pixel, hash);
+ 
+   // In order with the draws that use it (render thread).
+-  render_thread::Queue([shader_va, pixel, hash, kind] {
++  render_thread::Queue([shader_va, pixel, hash, ucode_hash, kind] {
+     auto &shader = g_guest_shaders[shader_va];
+     if (shader && shader->hash == hash && shader->kind == kind)
+       return;
+@@ -417,6 +419,7 @@
+     shader->kind = kind;
+     shader->self_va = shader_va;
+     shader->hash = hash;
++    shader->ucode_hash = ucode_hash;
+     shader->entry = FindShaderEntry(hash);
+     PipelineShaderLoaded(shader->entry);
+   });
+diff --git a/app/src/renut_engine/gpu/guest/resources.h b/app/src/renut_engine/gpu/guest/resources.h
+--- a/app/src/renut_engine/gpu/guest/resources.h
++++ b/app/src/renut_engine/gpu/guest/resources.h
+@@ -39,6 +39,7 @@
+   u32 self_va = 0;
+ 
+   uint64_t hash = 0;
++  uint64_t ucode_hash = 0;  // Dragon Burst: HashShaderUcode, the emulated path's key (draw overrides)
+   const ShaderCacheEntry *entry = nullptr;  // nullptr: not in the cache (captured)
+ 
+   // Vertex shaders: what D3DVertexShader_Bind bound the shader to. The bind
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -31,6 +31,7 @@
+ #include "renut_frame_dump.h"  // SwordMan (Android): swordman_renut_frame_dump (patch 0015)
+ 
+ #include <rex/system/xmemory.h>
++#include <rex/graphics/draw_overrides.h>  // Dragon Burst
+ 
+ #include "renut_engine/gpu/backend/backend.h"
+ #include "renut_engine/gpu/backend/gpu_profile.h"
+@@ -4244,6 +4245,14 @@
+   auto *ps = FindShaderLocked(device.U32(d3d::kDeviceOffsetPixelShader), RecordKind::PixelShader);
+   if (ps && SkipPixelShader(ps->hash))
+     return true;  // SwordMan: swordman_renut_skip_ps
++  // Dragon Burst (2026-10-28): the emulated path's per-pixel-shader overrides (rex/graphics/draw_overrides.h), by the
++  // same ucode hash. Burst Limit's post effects the options leave off (depth_of_field, glow_blur, motion_blur,
++  // soft_filter: burstlimit_patches.cpp) are dropped here as there, and the depth of field composite keeps the sharp
++  // picture through its replaced constant. The options' blur is not the renderer's to draw.
++  const rex::graphics::PixelShaderDrawOverride *ps_override =
++      ps && ps->ucode_hash ? rex::graphics::FindPixelShaderDrawOverride(ps->ucode_hash) : nullptr;
++  if (ps_override && ps_override->skip)
++    return true;
+   // Without a declaration set, the shader fetches as D3DVertexShader_Bind
+   // bound it, or else as its own vfetches describe (bundle meshes).
+   const VertexDeclarationRecord *declaration = nullptr;
+@@ -4773,7 +4782,24 @@
+ #endif
+   } else {
+     vs_alloc = UploadFloatConstants(vs_constants, vs_used, g_bound.vs_constants, vs->entry);
++    // Dragon Burst: constants an override replaces go into an upload of this draw's own (never one other draws
++    // share), and leave 'valid' so the next draw reading them uploads the device's again.
++    const bool ps_constants_override = ps_override && !ps_override->constants.empty();
++    if (ps_constants_override)
++      g_bound.ps_constants.alloc = {};
+     ps_alloc = UploadFloatConstants(ps_constants, ps_used, g_bound.ps_constants, ps ? ps->entry : nullptr);
++    if (ps_constants_override && ps_alloc) {
++      for (const auto &c : ps_override->constants) {
++        if (c.index >= 256 || (c.index + 1) * 16 > ps_alloc.size)
++          continue;
++        auto *lanes = reinterpret_cast<float *>(static_cast<u8 *>(ps_alloc.cpu) + c.index * 16);
++        for (u32 k = 0; k < 4; ++k) {
++          if ((c.component_mask >> k) & 1)
++            lanes[k] = c.value[k];
++        }
++        g_bound.ps_constants.valid[c.index / 32] &= ~(1u << (c.index % 32));
++      }
++    }
+     // banjo-nx (2026-10-19): and the other way round: the uploads cleared the dirty masks the pushed models track.
+     g_bound.pushed_vs.replay = 0;
+     g_bound.pushed_ps.replay = 0;
+@@ -5081,6 +5107,47 @@
+                                REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0;
+   if (draw_log)
+     DrawLog(call, geometry, vs, ps, targets, key, sc, export_count);
++  // Dragon Burst (2026-10-28): the pixel shader's c255 in the logged draws: the device's (as the game left it), the
++  // shader's literal (g_shaderLiterals) and what the upload the GPU reads holds.
++  if (draw_log && ps && DrawLogFrameLocked()) {
++    auto floats = [](const u8 *p, bool swap) {
++      std::array<float, 4> f{};
++      for (u32 k = 0; k < 4; ++k) {
++        u32 w;
++        std::memcpy(&w, p + k * 4, 4);
++        if (swap)
++          w = std::byteswap(w);
++        std::memcpy(&f[k], &w, 4);
++      }
++      return f;
++    };
++    const auto device_c255 = floats(ps_constants.Register(255), true);
++    std::array<float, 4> literal{};
++    bool has_literal = false;
++    if (ps->entry)
++      for (u32 i = 0; i < ps->entry->literalCount; ++i) {
++        const ShaderLiteral &l = g_shaderLiterals[ps->entry->literalOffset + i];
++        if (l.reg == 255) {
++          literal = floats(reinterpret_cast<const u8 *>(l.value), false);
++          has_literal = true;
++        }
++      }
++    std::array<float, 4> uploaded{};
++    const bool in_upload = ps_alloc && ps_alloc.size >= 256 * 16;
++    if (in_upload)
++      uploaded = floats(static_cast<const u8 *>(ps_alloc.cpu) + 255 * 16, false);
++    RGPU_INFO("[drawlog]   ps {:016X} c255: device {} {} {} {}; literal {}{} {} {} {}; upload ({} bytes) {}{} {} {} {}",
++              ps->hash, device_c255[0], device_c255[1], device_c255[2], device_c255[3], has_literal ? "" : "(none) ",
++              literal[0], literal[1], literal[2], literal[3], ps_alloc ? ps_alloc.size : 0u,
++              in_upload ? "" : "(not in it) ", uploaded[0], uploaded[1], uploaded[2], uploaded[3]);
++    // The characters' toon shader, the linear depth and the motion blur: c0-c8 and c254 as the device has them.
++    if (ps->hash == 0x8E5E328AC8EA3309ull || ps->hash == 0xE2223552B478AE8Full || ps->hash == 0xFE8B85F12835546Dull) {
++      for (u32 r : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 254u}) {
++        const auto c = floats(ps_constants.Register(r), true);
++        RGPU_INFO("[drawlog]   ps {:016X} c{}: device {} {} {} {}", ps->hash, r, c[0], c[1], c[2], c[3]);
++      }
++    }
++  }
+   // SwordMan (Android): one frame of draws, clears and resolves (swordman_renut_frame_dump, src/renut_frame_dump.h).
+   if (swordman::frame_dump::On() && swordman::frame_dump::Active(TextureFrameLocked())) {
+     std::string line = fmt::format("D vs {:016X} ps {:016X} prim {} n {} inst {} |", vs ? vs->hash : 0,
+diff --git a/app/src/renut_engine/gpu/render/shader_library.cpp b/app/src/renut_engine/gpu/render/shader_library.cpp
+--- a/app/src/renut_engine/gpu/render/shader_library.cpp
++++ b/app/src/renut_engine/gpu/render/shader_library.cpp
+@@ -72,6 +72,19 @@
+   return XXH3_64bits(container, size);
+ }
+ 
++uint64_t HashShaderUcode(const uint8_t *container) {
++  const auto *header = reinterpret_cast<const d3d::ShaderContainer *>(container);
++  const u32 virtual_size = header->virtualSize, physical_size = header->physicalSize;
++  const u32 shader_offset = header->shaderOffset;
++  if (shader_offset + 8 > virtual_size)
++    return 0;
++  const auto *words = reinterpret_cast<const be_u32 *>(container + shader_offset);
++  const u32 offset = words[0], size = words[1];
++  if (u64(offset) + size > physical_size)
++    return 0;
++  return XXH3_64bits(container + virtual_size + offset, size);
++}
++
+ const ShaderCacheEntry *FindShaderEntry(uint64_t hash) {
+   if (g_shaderCacheLayout != kShaderCacheLayout) {
+     static bool logged = false;
+diff --git a/app/src/renut_engine/gpu/render/shader_library.h b/app/src/renut_engine/gpu/render/shader_library.h
+--- a/app/src/renut_engine/gpu/render/shader_library.h
++++ b/app/src/renut_engine/gpu/render/shader_library.h
+@@ -19,6 +19,10 @@
+ 
+ const ShaderCacheEntry *FindShaderEntry(uint64_t hash);
+ 
++// Dragon Burst (2026-10-28): XXH3_64 of the shader's microcode alone (the physical part the container's shader header
++// names), the hash the emulated path keys its shaders by (ucode_data_hash, rex::graphics draw overrides).
++uint64_t HashShaderUcode(const uint8_t *container);
++
+ // Builds the active backend's shader from a cache entry (decompressing the
+ // cache on first use). nullptr on failure.
+ std::unique_ptr<plume::RenderShader> CreateCachedShader(plume::RenderDevice *device,
+diff --git a/app/src/renut_engine/gpu/render/textures.cpp b/app/src/renut_engine/gpu/render/textures.cpp
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -5,6 +5,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <unordered_set>
+ #include <bit>
+ #include <cmath>
+ #include <cstring>
+@@ -37,6 +38,8 @@
+ REXCVAR_DEFINE_BOOL(swordman_renut_resolve_mips_lazy, false, "SwordMan",
+                     "Renut: niveis de mip dos resolves feitos so quando um draw le o resolve num alvo menor");
+ 
++REXCVAR_DECLARE(int32_t, banjo_renut_diag_draw_log_s);  // Dragon Burst: draw.cpp
++
+ namespace renut::gpu {
+ 
+ namespace {
+@@ -391,6 +394,22 @@
+         std::memcpy(row.data(), src.base + offset, row.size());
+       }
+       SwapEndian(endian, row.data(), row.data(), row.size());
++      // Dragon Burst (2026-10-28, diagnostic with the draw log): the toon ramps (256x256 DXT1) as they go up, the
++      // first blocks of rows 0 and 32, each content once.
++      if (REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0 && z == 0 &&
++          ((gbpb == 8 && blocks_w == 64 && blocks_h == 64 && (y == 0 || y == 32)) ||
++           (gbpb == 16 && blocks_w >= 128 && (y == 40 || y == 64)))) {
++        static std::mutex logged_mutex;
++        static std::unordered_set<uint64_t> logged;
++        uint64_t first[2];
++        std::memcpy(first, row.data() + (gbpb == 16 ? size_t(blocks_w / 2) * 16 : 0), 16);
++        const uint64_t key = (uint64_t(fetch.BasePage()) << 40) ^ first[0] ^ (first[1] << 1) ^ y;
++        std::lock_guard lock(logged_mutex);
++        if (logged.size() < 400 && logged.insert(key).second)
++          RGPU_INFO("[db-ramp] base {:08X} {}x{} row {}: {:016X} {:016X} (tiled {}, endian {})", fetch.BasePage() << 12,
++                    blocks_w * 4, blocks_h * 4, y, std::byteswap(first[0]), std::byteswap(first[1]), fetch.Tiled(),
++                    endian);
++      }
+       uint8_t *out = dst + size_t(z) * dst_slice_pitch + size_t(y) * dst_row_pitch;
+       if (info.conversion == TexelConversion::Copy)
+         std::memcpy(out, row.data(), size_t(blocks_w) * hbpb);

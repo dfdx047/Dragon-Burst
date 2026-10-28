@@ -119,3 +119,26 @@ do log: `[renut] 10.0 s` / `dbz3: perf`):
    o ceu da ~(0,47, 0,5), velocidade zero como deve; o chao, com a camara parada, ~(0,55-0,6) e cresce para perto.
    Hipotese: a reprojecao da profundidade (o jogo le-a como `k_32_FLOAT`, formato 36, num 1, sinais 0x55) espera outra
    codificacao ou outro intervalo do que o alvo float do Renut lhe da (`banjo_gpu_depth_words_view`: 0 binds).
+
+## F1: imagem (2026-10-28, 01:40-03:00 Lisboa)
+
+**Fundo desfocado: resolvido** (`patches/renut/0104`). Nao era a reprojecao: o Renut desenhava a profundidade de
+campo, o glow, o motion blur e o soft filter que o caminho emulado salta (`burstlimit_patches.cpp`, cvars
+`depth_of_field`, `glow_blur`, `motion_blur`, `soft_filter`, todas desligadas por padrao, pelas draw overrides do SDK
+chaveadas pelo hash da ucode do PS). Os shaders do Renut levam agora esse mesmo hash (`HashShaderUcode`, XXH3 da
+microcode como o Xenia), e o draw do Renut consulta as mesmas overrides: salta os draws ou troca constantes do PS.
+Fundo nitido como no Xenia. Odin (Turnip): luta 60,0 fps (min 60,0), GPU 3,3 ms; campanha 180 s 60,0 fps (min 59,8),
+GPU 3,8 ms. Cube (Mali-G57, driver do sistema): luta 37,7 fps (min 33,6), GPU 25,5 ms; campanha 37,9 fps, GPU 25,8 ms.
+
+**c255: nao era.** Upload do PS no Renut: 256 registos (4096 bytes); c255 vem pelos literais (cbuf), device c255 = 0.
+Toon `8E5E328A` (Xenia `CF0D1D92`): c255 = (0,5, -1, 0,67, 1), c254 = (0, -2, 0,165, 0); profundidade linear
+`E2223552` (Xenia `D9872B5A`): c255 = (10000, 9999, 0, 0). Iguais ao registo `SHADER_CONSTANT_256 + 255*4` do Xenia;
+c0-c8 tambem (c8 = (1, 1, 1, 0,5): modo subtrair).
+
+**Cabelo sem cor: por resolver (5 tentativas, parado).** Iguais no Renut e no Xenia, draw a draw: os pares
+(rampa no slot 0, cor no slot 1) por numero de indices, o conteudo das rampas DXT1 256x256 e o alfa das DXT5 (primeiros
+blocos), as constantes. O HLSL do toon esta certo (subtrair = cor - rampa; forcar multiplicar estraga os fatos, que
+no Renut ja estao certos). Com o PS reescrito (`BANJO_HLSL_OVERRIDE`) a mostrar a amostra da rampa, o cabelo le uma
+faixa cinzenta. Pista nova: na primeira foto da campanha (transicao desfocada) o cabelo do Goku e do Raditz e a
+armadura estao certos (preto, castanho) no Odin e no Cube; 15 s depois, cinzentos. Proximo passo: o que muda entre essa
+frame e as seguintes (rampa reescrita pelo jogo em memoria depois do primeiro upload, sem o Renut a reler?).
