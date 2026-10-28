@@ -215,3 +215,69 @@ desenha um fundo azul-escuro com linhas de velocidade, o Renut um fundo branco c
 Como o cabelo, fica mais claro do que devia; o mapeamento dos blends do Renut (`format.cpp`, incluindo o reverse
 subtract) esta certo. Aparelhos restaurados: Odin com o `cvars.txt` original e sem `files/driver` (driver do sistema),
 hlprofile desinstalado; Cube sem `cvars.txt`; `burstlimit.toml` igual ao guardado nos dois.
+
+## M5: manha de 28/10 (06:40-12:00 Lisboa, RP5 + Cube)
+
+**Mali (Cube, Mali-G57, 720p, luta CPU x CPU).** Censo (`renut_gpu_profile`): ~27 ms por frame; numa GPU por blocos o
+fragmento de cada passe aparece no comando seguinte, por isso mediu-se por subtracao. O que veio do Zandatsu e o que
+se fez:
+
+| Mudanca | fps | GPU ms |
+|---|---|---|
+| Antes (0105) | 36,2 | 26,4 |
+| renut/0106 (o 0027 do Zandatsu: clear do alvo inteiro abre o passe com `CLEAR`) | 38,1 | 25,3 |
+| renut/0107 (passes sem teste de profundidade abrem so com a cor) + `-Bsymbolic-functions` | 39,3 | 24,1 |
+| 0107 desligado (`swordman_renut_depth_drop = false`) | 35,7 | 27,0 |
+| game/0007 (passe de velocidade saltado com motion blur e profundidade de campo desligados), por subtracao | | -0,6 |
+| 540p (`sa2_render_height_handheld = 540`) | 46,9 | 17,2 |
+
+Sem ganho: mips lazy ou sem mips nos resolves, D24S8, handshake a 2 ms. Passes partidos: de 5,0 para 2,7 por frame com o
+0107; os que sobram sao resolves da cena a meio do passe (do jogo). A 720p o limite e a GPU: frame de 28,3 ms com
+25,7 ms em `BlockOnFence` (CPU do jogo ~2,6 ms). 60 fps a 720p pedem ~16 ms de GPU; a 540p fica nos 17 ms.
+
+**RP5: os 48 fps nao eram CPU.** O toml do RP5 tem `frame_rate = "30"`; no Xenia isso e um vblank do convidado a 30 Hz
+(`SetGuestVblankRate`), mas a thread de VBlank do Renut era fixa a 60 Hz, e o temporizador do jogo (1,2 vblanks) dava
+~48 fps. Agora segue o ritmo pedido: `frame_rate` 30 -> 30,0 fps, 60 -> 60,0 fps (GPU 6,9 ms, Turnip PurpleVK).
+
+**shaderInt64.** Nenhum dos 150 shaders do jogo o usa (SPIR-V sem `OpCapability Int64`); so o `point_sprite_gs` (endereco
+do SharedConstants no push constant) e o `bc_decode_cs` (so sem BC nativo). renut/0108: variante `point_sprite_ubo_gs`
+que le o SharedConstants do UBO do set 7; o Renut so exige shaderInt64 sem BC nativo.
+
+**Cube depois de tudo (b8, 720p, luta):** 40,3 fps (min 37,5), GPU 23,0 ms, CPU do jogo ~2 ms: o limite e a GPU. A 540p
+(preset Leve): luta ate ao fim 48,1 fps (min 41,6, GPU 16,6), campanha 55,0 (min 46,5, GPU 15,3). O ecra do Cube e
+720x720 e o jogo ocupa 720x405, por isso 540p ja tem mais pixels do que se ve; o EASU nem corre la (a saida e menor que
+o frame, so o RCAS). No Zandatsu o MGR faz 37-41 fps no Cube a 540p.
+
+**Efeitos (game/0007).** O passe de velocidade (Xenia 29D1F5CC913EBB07) so serve o motion blur e a profundidade de
+campo: sem os dois, salta nos dois renderizadores (-0,6 ms no Cube). Motion blur com a camara parada (luta em pausa,
+so o motion blur ligado contra tudo desligado): o fundo do Renut fica igual (nitidez das arestas 26,6/26,9 no ceu,
+14,5/16,2 no chao). Nao ha borrao de fundo por velocidade errada em repouso.
+
+**480+ no RP5 (`device-profile.sh limit sd480p`, 540p, 60 fps pedidos).** Renut: luta 39,1 fps (min 35,4), campanha
+53,9 (min 35,1). Xenia: 34,6 e 37,1 (GPU 23,8 e 22,3 ms). Limite: GPU a 305 MHz (a thread do jogo passa 20,4 dos
+24,6 ms a espera da GPU; trabalho de CPU ~4 ms). 480p a 60: 50,3 (min 47,4); 540p a 30: 30,0 (min 30,0). Nos Adreno
+os timestamps contam mal o trabalho em GMEM (7,95 ms medidos contra ~20 ms de espera).
+
+**shaderInt64 / driver Qualcomm (renut/0108).** Alem do point sprite, o arranque no driver da Qualcomm (Vulkan 1.1)
+caia em dois sitios, um de cada vez: `getDeviceAddress` (o trampolim do core 1.2 do loader do Android salta para
+uma entrada nula; agora usa o KHR primeiro) e depois `vkCreatePipelineLayout` dentro do driver no `BuildDrawLayout`:
+esse driver liga so 4 descriptor sets e o layout tem 8. O modo compacto do Mali (renut/0020) esta desligado em Adreno
+porque o Turnip diz 4 mas liga 8. Proximo passo: compactar no driver proprietario (nome "Adreno (TM) ..." sem
+Turnip/PurpleVK). Parado aqui pela regra das 3 falhas seguidas.
+
+**Particulas em quadrados.** 15 min de luta no Cube com `banjo_renut_cpu_memos = false`: os quadrados continuam nos
+golpes especiais. Os memos nao sao a causa.
+
+**Cabelo cinzento: nao e o tempo, e o shader.** Despejo do estado completo (`banjo_renut_cpu_memos = false` +
+`banjo_renut_diag_draw_log_s`) no inicio da campanha (cabelo preto) e 100 s depois (cinzento): no estado preto os
+personagens sao desenhados por outro pixel shader (A08CA5F4CB866037, 91 draws); o toon 8E5E328AC8EA3309 so entra
+depois, e ai o cabelo fica cinzento logo no primeiro draw (nas lutas e assim desde o "FIGHT!"). Estado do toon estavel:
+slot 0 ramp DXT1 256x256 (dword0 82024802, clamp), slot 1 cor DXT5 512 ou 1024, c0 modo 1 (3 no passe 1024x1024),
+c7 lightcolt 0, c8 ambiente (1,1,1,0.5). Nas lutas o toon nao le o resolve 1024x1024 (`banjo_renut_diag_resolve_trace`:
+esse resolve so aparece em 3 frames da sessao), por isso o clear 4x/1x e o resolve MSAA dessa passada ficam de fora.
+Proximo passo: a traducao do 8E5E328A (SPIR-V no `shader_cache.cpp`, entrada 129336/3025) contra o que o Xenia faz
+com o mesmo ucode, a comecar pela amostragem da ramp e pelo rim (c6).
+
+Aparelhos no fim: RP5 e Cube sem `cvars.txt`, `burstlimit.toml` igual ao guardado, RP5 sem `files/driver` (o PurpleVK
+foi so para os testes), perfil 480+ desfeito (`device-profile.sh status`: no profile active). APK do branch instalado
+nos dois.
