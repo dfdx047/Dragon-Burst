@@ -1,0 +1,29 @@
+Dragon Burst (2026-10-28): the velocity pass skipped when both the motion blur and the depth of field are off.
+
+The per-pixel velocity pass (ucode 29D1F5CC913EBB07, the Renut's FE8B85F12835546D) feeds only the motion blur and
+the depth of field composite; with both off nothing reads it. Mali-G57, 720p fight: GPU 25.3 -> 24.7 ms.
+
+diff --git a/src/burstlimit_patches.cpp b/src/burstlimit_patches.cpp
+--- a/src/burstlimit_patches.cpp
++++ b/src/burstlimit_patches.cpp
+@@ -127,6 +127,10 @@
+ // blurs over several pixels at higher resolutions. Skipped, the frame stays
+ // as it was.
+ constexpr uint64_t kSoftFilterShader = 0x04FCB369A8343665;
++// Dragon Burst: the per-pixel velocity pass (velocity from the linear depth and the camera's motion, written for the
++// motion blur; its z the depth the depth of field composite may read). Read only by those two: with both off it is
++// skipped (~0.6 ms of GPU at 720p on a Mali-G57, the same picture).
++constexpr uint64_t kVelocityShader = 0x29D1F5CC913EBB07;
+ 
+ void ApplyPostEffectSettings() {
+   std::vector<rex::graphics::PixelShaderDrawOverride> overrides;
+@@ -148,6 +152,9 @@
+   if (!REXCVAR_GET(soft_filter)) {
+     overrides.push_back({kSoftFilterShader, true, {}});
+   }
++  if (!REXCVAR_GET(motion_blur) && !REXCVAR_GET(depth_of_field)) {
++    overrides.push_back({kVelocityShader, true, {}});
++  }
+   if (REXCVAR_GET(post_effects_hq)) {
+     // tf0 is the picture they blur (tf1 of the motion blur is its direction).
+     for (uint64_t shader : {kDepthOfFieldBlurShader, kGlowBlurShader, kMotionBlurShaders[0]}) {
