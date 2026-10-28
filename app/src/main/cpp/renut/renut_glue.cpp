@@ -109,8 +109,9 @@ REXCVAR_DEFINE_INT32(swordman_renut_handshake_ms, 8, "SwordMan",
 // callback do jogo (device+16544 = 820EAA20, posto em 820F9578), que sinaliza o evento do tique da frame: a thread
 // 820E7870 acorda e avanca o contador pelo qual a thread do jogo espera depois do null flip (820E7AE4). Com o Renut
 // nao ha GraphicsSystem (ConfigureRuntime: graphics = nullptr), logo nenhum interrupt: o jogo parava ai, no primeiro
-// frame. Aqui uma XHostThread chama o handler a 60 Hz (como o vsync do SDK chama o interrupt). A fila de flips fica
-// vazia (o Renut tem o null flip 820B5F90 e o Swap em hook), por isso o handler nunca escreve no registo da GPU.
+// frame. Aqui uma XHostThread chama o handler a 60 Hz, ou ao ritmo do frame_rate (como o vsync do SDK chama o
+// interrupt). A fila de flips fica vazia (o Renut tem o null flip 820B5F90 e o Swap em hook), por isso o handler nunca
+// escreve no registo da GPU.
 // ---------------------------------------------------------------------------------------------------------------
 #include <mutex>
 
@@ -118,6 +119,7 @@ REXCVAR_DEFINE_INT32(swordman_renut_handshake_ms, 8, "SwordMan",
 #include <rex/system/xthread.h>
 
 #include "renut_engine/gpu/d3d/d3d_native.h"
+#include <rex/graphics/frame_pacing.h>
 
 REXCVAR_DEFINE_BOOL(swordman_renut_vblank, true, "SwordMan",
                     "Renut no Burst Limit: o VBlank do D3D (820B5CF8) a 60 Hz, que o jogo espera a cada frame")
@@ -130,15 +132,23 @@ rex::system::object_ref<rex::system::XHostThread> g_vblank_thread;
 
 constexpr uint32_t kBlVBlankHandler = 0x820B5CF8;
 
+// O ritmo do vblank que o jogo pediu (frame_rate do burstlimit_patches: 30 = vblank a 30 Hz, que segura o jogo a 30
+// como no Xenia; 0 = os 60 Hz do modo de video). Ate 240 Hz; acima (unlocked) fica nos 60.
+std::chrono::nanoseconds VBlankInterval() {
+  const double hz = rex::graphics::GetGuestVblankRate();
+  return std::chrono::nanoseconds(int64_t(1e9 / (hz >= 1.0 && hz <= 240.0 ? hz : 60.0)));
+}
+
 int VBlankThreadMain() {
   using clock = std::chrono::steady_clock;
-  const auto interval = std::chrono::nanoseconds(1000000000LL / 60);
+  auto interval = VBlankInterval();
   auto next = clock::now() + interval;
   auto* kernel = rex::system::kernel_state();
   auto* dispatcher = kernel->function_dispatcher();
   auto* thread = rex::system::XThread::GetCurrentThread();
   for (;;) {
     std::this_thread::sleep_until(next);
+    interval = VBlankInterval();
     next += interval;
     // Atrasado mais de 4 vblanks (thread suspensa): retoma a partir de agora, sem rajada.
     if (clock::now() - next > 4 * interval) next = clock::now() + interval;
@@ -305,7 +315,16 @@ void SwordManRenutShotOnSwap() {
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
+namespace plume {
+void SetAndroidClearFold(bool enabled);  // renut/0106 (o 0027 do Zandatsu)
+}
+REXCVAR_DEFINE_BOOL(swordman_renut_clear_fold, true, "SwordMan",
+                    "Renut: um clear do alvo inteiro antes do primeiro draw do passe abre o passe com loadOp CLEAR (a GPU "
+                    "por blocos nao le o alvo da memoria); false = clear dentro do passe, como antes")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 bool SwordManRenutDeviceSupported(std::string* why) {
+  plume::SetAndroidClearFold(REXCVAR_GET(swordman_renut_clear_fold));
   void* library = plume_android_vulkan_library();
   if (!library) library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
   auto get_instance_proc = library ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(

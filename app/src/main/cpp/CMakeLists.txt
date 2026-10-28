@@ -236,3 +236,11 @@ endif()
 # inclui o Unisoc T770 do RG Cube). Fica depois do rexglue_configure_target, que
 # poe -march=armv8-a, para prevalecer.
 target_compile_options(main PRIVATE -march=armv8.2-a)
+
+# Chamadas entre funcoes do proprio libmain.so sem PLT (do Zandatsu, "Codegen 1"): as sub_* do codigo gerado tem
+# visibilidade padrao e cada chamada entre elas passava por um stub do PLT e pelo GOT. Com -Bsymbolic-functions o
+# linker liga-as diretamente; os hooks fortes continuam a ganhar as definicoes fracas no link.
+option(DB_BSYMBOLIC "libmain.so com -Bsymbolic-functions" ON)
+if(DB_BSYMBOLIC)
+    target_link_options(main PRIVATE -Wl,-Bsymbolic-functions)
+endif()
