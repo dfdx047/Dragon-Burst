@@ -208,3 +208,10 @@ comparar com o Xenia.
 o `[db-ramp]` e o c255 do 0104; o caminho normal nao escreve nenhum (0 linhas no log da luta, Odin e Cube) nem faz a
 procura num set em cada draw. O aviso de declaracao nao registada fica. Regressao final com o build do 0105: Odin
 (Turnip) 60,0 fps (min 59,9), GPU 3,8 ms; Cube 37,6 fps (min 34,2), GPU 25,3 ms.
+
+Fim da noite (04:10-04:25): 480 s de luta no Xenia (Odin, Turnip: 34,5 fps) e no Renut (Cube: 36,1 fps) sem os
+quadrados (3.a tentativa, sem conclusao). Outra diferenca vista nessas fotos: nos golpes de perseguicao o Xenia
+desenha um fundo azul-escuro com linhas de velocidade, o Renut um fundo branco com faixas azuis largas (Odin e Cube).
+Como o cabelo, fica mais claro do que devia; o mapeamento dos blends do Renut (`format.cpp`, incluindo o reverse
+subtract) esta certo. Aparelhos restaurados: Odin com o `cvars.txt` original e sem `files/driver` (driver do sistema),
+hlprofile desinstalado; Cube sem `cvars.txt`; `burstlimit.toml` igual ao guardado nos dois.
