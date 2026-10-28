@@ -596,6 +596,17 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     val turnipGpu = com.dfdx047.dragonburst.drivers.TurnipSupport.detect()
     var driverBootFailed by mutableStateOf(prefs.driverBootFailed)
         private set
+    /**
+     * O que faltou ao driver da ultima vez que o jogo tentou o Renut (renut_support.txt, escrito pelo jogo:
+     * "no" e a lista, p. ex. "shaderInt64"); "" = passou ou ainda nao tentou. Nessa sessao o jogo usou o Xenia.
+     */
+    val renutMissing: String
+        get() = try {
+            val lines = java.io.File(com.dfdx047.dragonburst.data.AppPaths.appDir, "renut_support.txt").takeIf { it.isFile }?.readLines().orEmpty()
+            if (lines.firstOrNull()?.trim() == "no") lines.getOrNull(1)?.trim().orEmpty().ifEmpty { "?" } else ""
+        } catch (e: Exception) {
+            ""
+        }
     var installedDrivers by mutableStateOf<List<InstalledDriver>>(emptyList())
         private set
     var activeDriver by mutableStateOf<String?>(null)

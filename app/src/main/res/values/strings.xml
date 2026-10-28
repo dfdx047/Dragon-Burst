@@ -499,6 +499,7 @@
     <string name="drivers_turnip_unsupported">No known Turnip support for this GPU: use the system driver. %1$s</string>
     <string name="drivers_turnip_auto">With Turnip active, TU_DEBUG=%1$s is applied automatically on this GPU.</string>
     <string name="drivers_boot_failed">The driver %1$s closed the game on startup, so the system driver is being used. Choose another driver (or the same one again) to try it again.</string>
+    <string name="drivers_renut_missing">Last time the Renut was tried, the driver lacked what it needs (%1$s), so the game used Xenia. Turnip usually has it.</string>
     <string name="turnip_compat_ir3_nopreamble">Shader compiler: no preamble (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Shader compiler: no UBO optimization (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Shader compiler: no 16-bit math (IR3 nofp16)</string>

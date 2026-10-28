@@ -102,6 +102,10 @@ fun DriversScreen(vm: LauncherViewModel) {
                 } else {
                     StatusLine(stringResource(R.string.drivers_not_adreno), Level.WARN)
                 }
+                val renutMissing = vm.renutMissing
+                if (renutMissing.isNotEmpty()) {
+                    StatusLine(stringResource(R.string.drivers_renut_missing, renutMissing), Level.WARN)
+                }
             }
         }
         item {

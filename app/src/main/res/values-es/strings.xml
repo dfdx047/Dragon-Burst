@@ -498,6 +498,7 @@
     <string name="drivers_turnip_unsupported">Sin soporte conocido de Turnip en esta GPU: usa el driver del sistema. %1$s</string>
     <string name="drivers_turnip_auto">Con Turnip activo, TU_DEBUG=%1$s se aplica automáticamente en esta GPU.</string>
     <string name="drivers_boot_failed">El driver %1$s cerró el juego al arrancar y se está usando el del sistema. Elige otro driver (o el mismo de nuevo) para volver a probar.</string>
+    <string name="drivers_renut_missing">En el último intento del Renut, el driver no tenía lo que necesita (%1$s) y el juego usó Xenia. Turnip suele tenerlo.</string>
     <string name="turnip_compat_ir3_nopreamble">Compilador de shaders: sin preámbulo (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Compilador de shaders: sin optimización de UBO (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sin cálculos de 16 bits (IR3 nofp16)</string>

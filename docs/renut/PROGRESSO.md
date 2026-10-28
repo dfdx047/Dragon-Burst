@@ -142,3 +142,23 @@ no Renut ja estao certos). Com o PS reescrito (`BANJO_HLSL_OVERRIDE`) a mostrar 
 faixa cinzenta. Pista nova: na primeira foto da campanha (transicao desfocada) o cabelo do Goku e do Raditz e a
 armadura estao certos (preto, castanho) no Odin e no Cube; 15 s depois, cinzentos. Proximo passo: o que muda entre essa
 frame e as seguintes (rampa reescrita pelo jogo em memoria depois do primeiro upload, sem o Renut a reler?).
+
+## F2: Renut no Mali (RG Cube, Mali-G57, 2026-10-28)
+
+O Renut ja corria no Cube com o driver do sistema; o que o Zandatsu faz pela Mali ja esta no renderer (mesma camada):
+texturas BC descomprimidas por compute (`BC textures: decoded on the GPU (compute) (device BC formats: no,
+swordman_renut_bc_decode = auto)`), descriptor sets compactos (`maxBoundDescriptorSets 7` -> `compact descriptor sets
+(7 bound at most)`) e o aviso sem `vertexPipelineStoresAndAtomics` (so log; o BL nao usa memexport). A verificacao do
+driver (`renut_glue.cpp`) ja e pelo que o driver tem, nao pela marca. Nada do que o Renut exige falta a Mali-G57.
+Novo: o launcher mostra o motivo no ecra Drivers quando o Renut nao arrancou ("Na ultima tentativa do Renut, o driver
+nao tinha o que ele precisa (shaderInt64) e o jogo usou o Xenia"), lido do `renut_support.txt` que o jogo escreve.
+No Odin com o driver Qualcomm do sistema: `Renut: o driver nao tem shaderInt64; a usar o Xenia`.
+
+Cube, mesma cena (luta Goku x Krillin 120 s, campanha "Saiyan Arrival" 180 s com cutscenes), log do jogo:
+
+| Cena | Xenia | Renut |
+|---|---|---|
+| Luta | 31,7 fps (min 27,1), GPU 31,2 ms, pior frame 150 ms | 37,7 fps (min 33,6), GPU 25,5 ms |
+| Campanha | 33,6 fps (min 27,4), GPU 29,5 ms, pior frame 150 ms | 37,9 fps (min 33,6), GPU 25,8 ms |
+
+Titulo, menu, luta, campanha com cutscene: sem travar nem `device lost`. Mesmo defeito do cabelo que no Odin.
