@@ -6,7 +6,8 @@ Port Android do [DBZ Burst Limit Recompiled](https://github.com/iExplosiveRage/D
 
 O que cada recurso do PC vira no Android: [COMPATIBILIDADE.md](COMPATIBILIDADE.md).
 
-**Release atual: 0.1.2** (17/10/2026; a 0.1.0 foi a primeira pública, patches 0000–0098 + jogo 0001–0004). Notas para
+**Release atual: 0.1.2** (17/10/2026; a 0.1.0 foi a primeira pública, patches 0000–0098 + jogo 0001–0004). A 0.2.0
+(Renut, código do jogo cifrado) está preparada no branch `renut/burst-limit` (28/10), por publicar. Notas para
 os jogadores: [CHANGELOG.md](../CHANGELOG.md); texto da release no GitHub: [release/v0.1.0.md](release/v0.1.0.md);
 como publicar: [Publicar uma release](#publicar-uma-release). O changelog de desenvolvimento que estava no
 CHANGELOG até a 0.1.0 está no [fim deste arquivo](#changelog-de-desenvolvimento-até-a-010).

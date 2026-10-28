@@ -11,7 +11,7 @@ Android do DBZ Budokai 3 HD).
 
 > **Nenhum arquivo do jogo vem incluído.** Você precisa da sua própria cópia legal, versão **USA (NTSC-U)**.
 >
-> **Versão 0.1.0, a primeira.** Testada no Retroid Pocket 5 e no Anbernic RG Cube. O que ainda não foi
+> **Versão 0.2.0.** Testada no Retroid Pocket 5 e no Anbernic RG Cube. O que ainda não foi
 > testado num aparelho está marcado como **experimental**.
 
 ## O que tem
@@ -45,8 +45,9 @@ Android do DBZ Budokai 3 HD).
 **Gráficos**
 - **5 predefinições** (Mínimo, Leve, Equilibrado, Alto, Ultra) com os processadores recomendados para
   cada uma; o app sugere a do seu aparelho.
-- Resolução interna **480p, 540p, 720p, 2K (1440p) ou 4K (2160p)**. Não há 1080p (o renderizador só
-  multiplica 720p por inteiros).
+- **Renderizador**: Auto (padrão), Renut ou Xenia (veja Desempenho).
+- Resolução interna **Tela, 480p, 540p, 720p, 1080p (só no Renut), 2K (1440p) ou 4K (2160p)**. "Tela"
+  desenha na altura que a imagem ocupa na tela; nas telas pequenas o app sugere-a no primeiro arranque.
 - Efeitos do jogo ligáveis (profundidade de campo, brilho, desfoque de movimento, filtro suave), AMD
   FSR 1 + CAS, FXAA, filtro anisotrópico, manter a proporção ou esticar.
 - **Drivers Vulkan**: o do sistema ou Turnip (Mesa) via libadrenotools, baixados dos repositórios da
@@ -82,7 +83,14 @@ Lista completa, recurso por recurso, contra a versão de PC: [docs/COMPATIBILIDA
 
 ## Desempenho
 
-O Burst Limit Recompiled usa o renderizador do Xenia, que imita a GPU do Xbox 360 e é pesado para um
+**Renut (0.2.0, padrão).** O renderizador nativo do
+[Zandatsu](https://github.com/dfdx047/Zandatsu): desenha o Direct3D do jogo direto em
+Vulkan, sem imitar a GPU do Xbox 360. O Auto usa-o onde o driver tem o que ele precisa (Adreno com o
+driver do sistema ou Turnip, Mali) e o Xenia nos outros; a aba Drivers diz o porquê, e se o Renut fechar
+o jogo ao abrir o Auto passa sozinho ao Xenia. Ainda com dois defeitos: o cabelo de algumas personagens
+fica cinzento e, raramente, um quadrado colorido pisca num golpe especial.
+
+**Xenia.** O Burst Limit Recompiled usa o renderizador do Xenia, que imita a GPU do Xbox 360 e é pesado para um
 celular. O Dragon Burst troca as partes mais caras por um **render nativo**, passo a passo, cada um com
 interruptor e validado pelo autoteste:
 
@@ -102,17 +110,17 @@ a 720p com todos os efeitos, a luta foi de 12-16 FPS para até 60 FPS. O método
 
 | Aparelho | Processador / GPU | Driver | Resultado |
 |---|---|---|---|
-| Retroid Pocket 5 | Snapdragon 865 / Adreno 650 | do sistema (Qualcomm) | 720p com todos os efeitos: até 60 FPS na luta, cerca de 47-50 FPS nas cenas pesadas. Autoteste sem diferenças. |
+| Retroid Pocket 5 | Snapdragon 865 / Adreno 650 | do sistema (Qualcomm) | Renut a 720p: 60 FPS estáveis na luta e na campanha (GPU 11 ms). Xenia a 720p com todos os efeitos: até 60 FPS na luta, cerca de 47-50 FPS nas cenas pesadas. |
+| Retroid Pocket 5, perfil 480+ | Snapdragon 865 / Adreno 650 (GPU limitada) | do sistema / Turnip | Renut: 50 FPS a 480p, 30 FPS estáveis a 540p; a 540p e 60 pedidos, 39 na luta e 54 na campanha. |
 | Retroid Pocket 5 | Snapdragon 865 / Adreno 650 | Turnip (várias versões, Mesa 25.3 e 26.3) | Imagem errada (fundo cor de azeitona, cores trocadas). Use o driver do sistema. |
-| Anbernic RG Cube | Unisoc T770 / Mali-G57 MC4 | do sistema | 720p com efeitos: 22-24 FPS. 540p: 20-24 FPS antes do patch 0091; com o 0091 ainda não medido (objetivo: 30 FPS). |
+| Anbernic RG Cube | Unisoc T770 / Mali-G57 MC4 | do sistema | Renut com "Tela" (360p): 60 FPS na luta e na campanha; 480p 59 FPS, 540p 50-52 FPS. Xenia a 720p com efeitos: 22-24 FPS. |
 | AYN Odin 3 | — | — | Ainda não testado (será o aparelho de teste dos 120 FPS). |
 
 ## Hardware
 
 - **Mínimo para 60 FPS:** Snapdragon 865 (Adreno 650) a 720p, com quedas nas cenas pesadas.
-- **Entrada, experimental:** classe Unisoc T770 / Mali-G57 MC4 a 540p (predefinição Leve), com objetivo
-  de 30 FPS. A correção que deve levar esses aparelhos aos 30 FPS (patch 0091) ainda não foi confirmada
-  no aparelho.
+- **Entrada:** classe Unisoc T770 / Mali-G57 MC4 com o Renut: 60 FPS com a resolução "Tela" numa tela
+  pequena (RG Cube, 360p) ou a 480p.
 - **Recomendado:** Snapdragon 8 Gen 2 ou mais novo (ex.: AYN Odin 3), que é também o que o modo 120 FPS
   interpolado precisa (além de uma tela de 120 Hz).
 - **Não testado:** qualquer coisa abaixo de um Mali-G57 MC4 ou de um Adreno 6xx intermediário. A
