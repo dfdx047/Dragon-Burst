@@ -1,0 +1,38 @@
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -81,6 +81,12 @@
+ REXCVAR_DEFINE_BOOL(swordman_renut_depth_drop, true, "SwordMan",
+                     "Renut: os passes sem teste nem escrita de profundidade nem stencil abrem so com a cor (a Mali e o "
+                     "Adreno em GMEM nao leem nem gravam a profundidade); false = como antes");
++// Dragon Burst (2026-10-28, Cube at 60 fps): the single-sampled colour resolves drawn (DrawResolveCopy) on Vulkan too.
++// A Burst Limit fight resolves ~20 targets a frame; on the Mali-G57 they take 5.2 of 16.9 GPU ms (renut_gpu_profile).
++// Drawn they cost the same (5.2 ms, all 19 a frame drawn): the time is the passes they end and the bandwidth, not the
++// copy. Off; kept for other GPUs. Same bits.
++REXCVAR_DEFINE_BOOL(swordman_renut_draw_resolves, false, "SwordMan",
++                    "Renut (Vulkan): colour resolves drawn into the texture instead of copied (same bits)");
+ REXCVAR_DEFINE_STRING(swordman_renut_skip_ps, "", "SwordMan",
+                       "Renut (diagnostic): pixel shader hashes (hex, comma separated) whose draws are skipped")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+@@ -4283,7 +4289,10 @@
+     return true;
+   if (REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0) {
+     static std::unordered_set<uint64_t> census;
+-    g_draw_log_census = ps && census.size() < 1024 && census.insert(ps->hash).second;
++    // Dragon Burst (2026-10-28, particles as squares): per pixel shader and primitive type, so a point list after the
++    // shader's first draw is logged too.
++    g_draw_log_census = ps && census.size() < 1024 &&
++                        census.insert(ps->hash ^ (uint64_t(call.primitive) << 56)).second;
+   }
+   // Without a declaration set, the shader fetches as D3DVertexShader_Bind
+   // bound it, or else as its own vfetches describe (bundle meshes).
+@@ -6182,7 +6191,8 @@
+           TransitionTextureLocked(dest, plume::RenderTextureLayout::RESOLVE_DEST);
+           cmd->resolveTextureRegion(dest->texture.get(), host_x, host_y, surface->texture.get(),
+                                     &rect);
+-        } else if (IsDeko3D() && banjo::renut_gpu::DrawResolvesOn() && slice == 0 && z == 0 &&
++        } else if ((IsDeko3D() || REXCVAR_GET(swordman_renut_draw_resolves)) && banjo::renut_gpu::DrawResolvesOn() &&
++                   slice == 0 && z == 0 &&
+                    DrawResolveCopy(surface, dest, rect, host_x, host_y)) {
+           // banjo-nx (2026-10-18): drawn, not copied (deko3d).
+         } else {

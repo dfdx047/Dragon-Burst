@@ -305,3 +305,66 @@ layout compacto da Mali tinha 5. Com o nome "Adreno ..." (sem Turnip) e menos de
 de texturas no set 0 (binding 1) e as constantes vao para 1-3; o SPIR-V dos draws e renumerado (os samplers passam a
 binding 1). O `point_sprite_ubo_gs` passa a automatico sem shaderInt64 (o Renut so o exige sem BC nativo). Log:
 `Draw layout: textures and samplers in one set, 4 sets (4 bound at most)`.
+RP5 com o driver do sistema: titulo, save, menu aos 66 s, luta ate ao fim do round 30,0 fps (min 29,8, GPU 8,3 ms; o
+toml do RP5 tem frame_rate 30), campanha com as duas cutscenes 30,0 (min 29,9, GPU 8,6 ms), 0 GPU perdida, imagem igual
+a do Turnip (o cabelo cinzento de sempre). Cube (Mali, layout de 5 sets intocado) 51,8 / 50,5 fps.
+
+**Particulas em quadrados (item 3).** Hipotese do point sprite sem coordenada: cai. O censo do drawlog passou a ser por
+(PS, tipo de primitiva) para apanhar um point list depois do primeiro draw de um PS (`render/draw.cpp`, diagnostico
+so com `banjo_renut_diag_draw_log_s`). 10 min de luta no Cube com golpes especiais: 32 pares, todos `prim 6` (triangle
+strip) ou `prim 13` (quad list), nenhum `prim 1`. As particulas sao DrawVerticesUP de 6 vertices em strip (VS
+`95884550`, `8AD484C5`, `97E96260`; declaracao 0, o caminho dos vfetches), com a coordenada no vertice. Nenhum VS do
+jogo escreve `oPts`, logo o `point_sprite_gs` (0108) nao corre para o jogo. Os raios vermelhos e verdes que apareceram
+nas fotos sao do golpe (tem gradiente), nao os quadrados; o `46D3C37E` nao entrou nesses 10 min.
+Foto do defeito (RP5, Renut, driver do sistema, luta aos 240 s, `reg_rp5_auto_240.png`): um quadrado centrado no Goku
+num golpe, preto no canto de cima a esquerda, vermelho em cima a direita, verde em baixo a esquerda, amarelo em baixo a
+direita: a cor e o (u, v) do proprio quadrado. 2.a hipotese, as vfetches remendadas pelo D3D do jogo lidas na
+reproducao (`PatchedFetchDeclarationLocked`, um bind mais novo daria a cor a partir do UV): as palavras foram guardadas
+na thread do jogo em cada draw e passadas em ordem; 260 s de luta e a campanha no RP5 e 260 s no Cube sem uma unica
+vez em que mudassem entre o draw e a reproducao, nem um VS religado a outro layout. Cai; o codigo foi retirado. Sem
+correcao, sem foto depois. Proximo (3.a): um quadrado com as cores do seu UV parece o mapa de distorcao de um golpe
+(offsets de textura escritos num alvo a parte) a cair no alvo da cena: drawlog continuo nesse golpe, ver o alvo e o
+EDRAM base desse draw contra os da cena.
+
+**Cabelo cinzento (item 4), 4 tentativas.** (1) A traducao do toon `8E5E328A` (XenosRecomp, `ps_c3506b35fe163675.hlsl`)
+contra o disassembly do Xenia do mesmo ucode (`CF0D1D92`, `dump_shaders`): as 52 instrucoes batem uma a uma, incluindo
+`c_abs[8].w` (v da rampa), `-c255.w - -r0.x` (subsc), `max_sat`, `setp_gt -c8.w` (multiplica ou subtrai a rampa), o rim
+(`log`/`exp` com c6.zy, `-r0.x * c6.x + r0.w`), os clamps a [-1, 1] e o tf0 = rampa / tf1 = cor (texture1 no slot 0).
+O `FLT_MIN` dos clamps e -FLT_MAX: certo. (2) Uma cvar de debug que trocava constantes do PS pelo hash nos dois
+caminhos (`draw_overrides.h`): c2.w = 0 mudou o Renut (personagens escuras e planas, cabelo ainda cinzento) e nao o
+Xenia. (3) `swordman_skip_ps` / `swordman_renut_skip_ps` deste PS: as personagens somem nos dois, logo os dois as
+desenham com ele. (4) c1 = (1,0,0,1) (a cor do fade a 100%, devia pintar tudo de vermelho): nao mudou nenhum dos dois.
+A troca de constantes nao chega de forma fiavel a este PS (no Xenia nunca, no Renut so a c2), por isso nao da para por
+r0.x e u na saida assim; a cvar foi retirada. Fica: a traducao esta certa, a diferenca vem das entradas (interpolantes
+do VS `59D0D3EA`, texturas ou constantes). Proximo, sem trocar constantes: o mesmo debug escrito no proprio HLSL
+(`oC0 = float4(r0.x*0.5+0.5, u, 0, 1)` sob uma palavra do SharedConstants) e, no Xenia, no translator de SPIR-V para
+este hash; e comparar os VS `59D0D3EA` dos dois lados.
+
+**Cube a 60 fps (item 5).** a) Censo por passe (`renut_gpu_profile`, luta a 540p, 19,4 ms): cena 6,65 ms (252 draws),
+7 passes de pos em ecra inteiro 5,41 ms, resolves 4,77, apresentacao 0,85, resolves de profundidade 0,81, 480x270
+0,55, sombra 0,31. Por shader (`banjo_renut_diag_gpu_shaders`) a Mali junta o passe inteiro no primeiro PS; os passes
+de pos custam 0,4-0,65 ms cada. Os resolves sao ~20 por frame (13 de 960x540, 6 de 480x270, 1 de 1024x1024, 1 de
+profundidade). Ataque: desenha-los em vez de copiar (`swordman_renut_draw_resolves`, renut/0110, o caminho do deko3d):
+os 19 por frame desenhados, resolves 5,2 ms como antes: o tempo e o passe que acabam e a largura de banda, nao a
+copia. Fica desligado. b) "Resolucao da tela": o Renut so desenha nas alturas da tabela de escalas (360, 480, 540, 720,
+1080, 1440, 2160; 405 e uma escala nova que obrigaria a refazer a cache de shaders), logo a opcao usa a mais perto da
+tela (no empate a menor): no Cube 405 -> 360 (o Xenia faz a exata, 56%). Medido no Cube, luta / campanha:
+
+| Altura | Luta | Campanha | GPU |
+|---|---|---|---|
+| 540 | 51,8 (min 42,5) | 50,5 (min 43,9) | 15,8 ms |
+| 480 | 59,1 (min 52,3) | 59,1 (min 57,8) | 13,3 ms |
+| 360 ("Tela") | 59,9 (min 59,5) | 59,9 (min 58,8) | 11,7 ms |
+
+c) No primeiro arranque numa tela com menos de 540 linhas de imagem o launcher pergunta (foto no Cube: "Esta tela
+mostra o jogo em 404 linhas ... desenhado a 360p"); "Usar 360p" grava `sa2_render_height_handheld = 360`,
+`draw_resolution_percent = 56`, `swordman_resolution_choice = "screen"`.
+
+**Auto por omissao (item 6).** O "auto" (ja o valor por omissao) passa a pedir o Renut em todas as GPUs, menos a
+Adreno 710/720 com o driver do sistema (SIGBUS, Zandatsu); o jogo usa o Xenia quando o driver nao tem o que o Renut
+precisa (como antes). Novo: o `GameActivity` deixa `renut_boot.pending` nos primeiros 30 s de um arranque do Renut
+pedido pelo "auto"; se o launcher o encontra ao abrir, o jogo fechou: `renut_boot.failed`, o "auto" passa ao Xenia e o
+ecra Drivers diz porque (escolher o renderizador outra vez limpa-o). Testado no RP5 com o marcador posto a mao:
+toml `swordman_renderer = "xenos"`, aviso no ecra Drivers, o jogo no Xenia ate ao menu (69 s); limpo, volta ao Renut.
+Regressao com o "auto" (b20): RP5 Renut (driver do sistema, 4 sets) luta 30,0 (min 29,9), campanha 30,0 (min 29,9);
+Cube Renut 640x360 luta 59,9 (min 59,5), campanha 59,9 (min 59,0); Cube no Xenia (56%) luta 44,0, campanha 43,5.
