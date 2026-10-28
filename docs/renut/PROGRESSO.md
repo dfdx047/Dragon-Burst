@@ -281,3 +281,27 @@ com o mesmo ucode, a comecar pela amostragem da ramp e pelo rim (c6).
 Aparelhos no fim: RP5 e Cube sem `cvars.txt`, `burstlimit.toml` igual ao guardado, RP5 sem `files/driver` (o PurpleVK
 foi so para os testes), perfil 480+ desfeito (`device-profile.sh status`: no profile active). APK do branch instalado
 nos dois.
+
+## T1: tarde de 28/10 (Lisboa, RP5 + Cube)
+
+**Distribuicao (item 1).** Do Zandatsu (93e6d8b, 12127b8), sem mudar o metodo: o jogo (codigo gerado, hooks, Renut,
+shaders traduzidos) passa a `libgame.so`, que so entra no APK encriptado (`assets/libgame.zdat`, AES-256-GCM, chave =
+SHA-256 da imagem PE do `default.xex`; `tools/pack-libgame.py`, chamado pelo CMake). O `libmain.so` fica so o leitor do
+XEX (`app/src/main/cpp/loader/`); o `GameLib.kt` desencripta no import (ISO ou pasta), no JOGAR e no `GameActivity`
+quando o APK traz outro (`libgame.json` "id"). `tools/check-clean.py <apk> <libgame.so em claro> <default.xex>`:
+
+| APK | Resultado |
+|---|---|
+| main 0.1.2 | `libmain.so` com o jogo em claro: 2772 de 3000 pedacos, nomes `sub_8...`, `PPCFuncMappings` |
+| branch b12 (manha) | o mesmo (2784) e o cache de shaders do Renut (`g_shaderCacheEntries`, SPIR-V e DXIL) |
+| branch b13 (cifrado) | 0 ficheiros com codigo ou nomes do jogo, sem `libgame.so`; repositorio e 737 blobs do historico limpos: LIMPO |
+
+Import do `.iso` pelo launcher: RP5 10 s, Cube 6 s ate `import: libgame.so pronto (29 MB, id ..., title 424107DC)`
+(os ficheiros com o tamanho certo nao se copiam outra vez); o jogo arranca depois nos dois. O APK cresce de 63 para
+83 MB (o `.zdat` nao comprime; o `libmain.so` antigo comprimia).
+
+**Renut no driver da Qualcomm (item 2, renut/0109).** O driver do sistema do Adreno 650 liga so 4 descriptor sets; o
+layout compacto da Mali tinha 5. Com o nome "Adreno ..." (sem Turnip) e menos de 5 sets, os samplers juntam-se a tabela
+de texturas no set 0 (binding 1) e as constantes vao para 1-3; o SPIR-V dos draws e renumerado (os samplers passam a
+binding 1). O `point_sprite_ubo_gs` passa a automatico sem shaderInt64 (o Renut so o exige sem BC nativo). Log:
+`Draw layout: textures and samplers in one set, 4 sets (4 bound at most)`.

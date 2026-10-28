@@ -324,11 +324,11 @@ void SetPointSpriteUbo(bool on);  // renut/0108
 
 // O Renut sem shaderInt64 (o driver da Qualcomm no Adreno 650 nao o tem): nos shaders so o point_sprite_gs (endereco de
 // 64 bits do SharedConstants) e o bc_decode_cs (so sem BC nativo, ou seja na Mali) o usam. Sem ele, os point sprites
-// leem o SharedConstants do UBO do set 7 (renut/0108). Ligado, o Renut deixa de exigir shaderInt64 quando ha BC; por
-// omissao continua a exigi-lo, porque o driver da Qualcomm ainda cai no layout de 8 sets (so liga 4) e o jogo deve ir
-// para o Xenia.
+// leem o SharedConstants do UBO do set 7 (renut/0108), sozinho: o Renut so exige shaderInt64 quando nao ha BC nativo.
+// O driver da Qualcomm so liga 4 descriptor sets: o layout dos draws junta as texturas e os samplers (renut/0109).
+// Ligado, usa a variante do UBO mesmo com shaderInt64 (teste).
 REXCVAR_DEFINE_BOOL(swordman_renut_point_ubo, false, "SwordMan",
-                    "Renut: point sprites a ler o SharedConstants do UBO e sem exigir shaderInt64 (teste do driver Qualcomm)")
+                    "Renut: point sprites a ler o SharedConstants do UBO mesmo com shaderInt64 (sem ele e sempre assim)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(swordman_renut_clear_fold, true, "SwordMan",
                     "Renut: um clear do alvo inteiro antes do primeiro draw do passe abre o passe com loadOp CLEAR (a GPU "
@@ -385,9 +385,8 @@ bool SwordManRenutDeviceSupported(std::string* why) {
       if (!ok) missing += std::string(" ") + what;
     };
     need(f12.bufferDeviceAddress, "bufferDeviceAddress");
-    // shaderInt64: com swordman_renut_point_ubo so para a descompressao BC por compute (sem BC nativo).
-    need(f.features.shaderInt64 || (REXCVAR_GET(swordman_renut_point_ubo) && f.features.textureCompressionBC),
-         "shaderInt64");
+    // shaderInt64: so para a descompressao BC por compute (sem BC nativo); os point sprites passam ao UBO.
+    need(f.features.shaderInt64 || f.features.textureCompressionBC, "shaderInt64");
     renut::gpu::SetPointSpriteUbo(REXCVAR_GET(swordman_renut_point_ubo) || !f.features.shaderInt64);
     need(f12.descriptorIndexing && f12.runtimeDescriptorArray && f12.descriptorBindingPartiallyBound &&
              f12.descriptorBindingVariableDescriptorCount && f12.descriptorBindingSampledImageUpdateAfterBind,
