@@ -152,6 +152,7 @@ fun LauncherApp(vm: LauncherViewModel) {
     }
 
     if (vm.showGpuNotice) GpuNotice(vm, openTab = { tab = it })
+    else if (vm.showScreenResNotice) ScreenResNotice(vm)
     if (vm.showGpuLost) GpuLostDialog(vm, openTab = { tab = it })
     if (vm.showUpdateDialog) UpdateDialog(vm)
 }
@@ -329,6 +330,27 @@ private fun GpuNotice(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
                 vm.dismissGpuNotice()
                 openTab(LauncherTab.PERFORMANCE)
             }) { Text(stringResource(R.string.gpu_first_choose)) }
+        },
+    )
+}
+
+/** Tela pequena: desenhar na altura que a imagem ocupa (LauncherViewModel.showScreenResNotice). */
+@Composable
+private fun ScreenResNotice(vm: LauncherViewModel) {
+    val fit = com.dfdx047.dragonburst.data.ScreenFit
+    val h = fit.height(vm.config.letterbox)
+    // A altura em que fica desenhado: a do Renut e a mais perto das suas (405 -> 360), o Xenia faz a exata.
+    val drawn = if (vm.config.useRenut) fit.renutHeight(vm.config.letterbox) else h
+    AlertDialog(
+        onDismissRequest = { vm.answerScreenResNotice(false) },
+        icon = { Icon(Icons.Filled.Memory, null) },
+        title = { Text(stringResource(R.string.screen_res_title)) },
+        text = { Text(stringResource(R.string.screen_res_text, h, drawn)) },
+        confirmButton = {
+            TextButton(onClick = { vm.answerScreenResNotice(true) }) { Text(stringResource(R.string.screen_res_use, drawn)) }
+        },
+        dismissButton = {
+            TextButton(onClick = { vm.answerScreenResNotice(false) }) { Text(stringResource(R.string.screen_res_keep)) }
         },
     )
 }

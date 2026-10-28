@@ -295,6 +295,7 @@
     <string name="perf_frameskip">Dibujar un fotograma sí y otro no</string>
     <string name="perf_frameskip_sub">Mantiene la lógica a 60 FPS pero solo dibuja uno de cada dos fotogramas: la mitad del trabajo de GPU. Diagnóstico; para jugar fluido mejor 30 FPS.</string>
     <string name="perf_resolution_sub">La resolución a la que se dibuja el juego, luego estirada a la pantalla. 720p es la de la consola; 2K = 1440p (2x), 4K = 2160p (3x).</string>
+    <string name="res_screen">Pantalla (%1$dp)</string>
     <string name="perf_resolution_mem">2K y 4K necesitan mucha más memoria de GPU. En GPU Mali quédate en 720p o menos.</string>
     <string name="perf_effects_title">Efectos del juego</string>
     <string name="perf_effects_sub">Desactivados por defecto, como en la versión de PC. Activarlos cuesta GPU (evítalo en Mali).</string>
@@ -501,6 +502,7 @@
     <string name="drivers_turnip_auto">Con Turnip activo, TU_DEBUG=%1$s se aplica automáticamente en esta GPU.</string>
     <string name="drivers_boot_failed">El driver %1$s cerró el juego al arrancar y se está usando el del sistema. Elige otro driver (o el mismo de nuevo) para volver a probar.</string>
     <string name="drivers_renut_missing">En el último intento del Renut, el driver no tenía lo que necesita (%1$s) y el juego usó Xenia. Turnip suele tenerlo.</string>
+    <string name="drivers_renut_boot_failed">En el último intento el Renut cerró el juego al arrancar, así que Auto usa ahora Xenia. Elegir otra vez el renderizador (Rendimiento) vuelve a probar el Renut.</string>
     <string name="turnip_compat_ir3_nopreamble">Compilador de shaders: sin preámbulo (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Compilador de shaders: sin optimización de UBO (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sin cálculos de 16 bits (IR3 nofp16)</string>
@@ -525,6 +527,10 @@
     <string name="gpu_lost_text">El driver gráfico dejó de responder durante el juego, así que el juego volvió aquí en lugar de cerrarse. Lo que el juego ya había guardado se conserva (guarda después de los combates y de los cambios de opciones).\n\nSi vuelve a pasar, prueba otro driver en la pestaña Drivers.</string>
     <string name="gpu_lost_text_other">El driver gráfico dejó de responder durante el juego, así que el juego volvió aquí en lugar de cerrarse. Lo que el juego ya había guardado se conserva (guarda después de los combates y de los cambios de opciones).\n\nSi vuelve a pasar, prueba un perfil gráfico más ligero (Ligero o Mínimo) en la pestaña Rendimiento y envía los logs (Exportar logs) en una issue en GitHub.</string>
     <string name="gpu_lost_ok">OK</string>
+    <string name="screen_res_title">¿Dibujar a la resolución de la pantalla?</string>
+    <string name="screen_res_text">Esta pantalla muestra el juego en %1$d líneas (16:9 en una pantalla más pequeña). Dibujar más gasta GPU que no se ve: con \"Resolución de la pantalla\" el juego se dibuja a %2$dp y va más rápido. Se puede cambiar en Rendimiento.</string>
+    <string name="screen_res_use">Usar %1$dp</string>
+    <string name="screen_res_keep">Mantener</string>
     <string name="settings_offline_delay">Retraso de los controles</string>
     <string name="settings_offline_delay_sub">Combates sin conexión. Original: los 3 frames del propio juego (50 ms), como en Xbox 360. Reducido: la pulsación actúa en el frame siguiente. Desde el próximo combate.</string>
     <string name="input_delay_reduced">Reducido</string>

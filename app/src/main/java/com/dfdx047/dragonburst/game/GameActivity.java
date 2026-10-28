@@ -68,6 +68,7 @@ public class GameActivity extends SDLActivity {
         if (!driverCrashedBefore(appDir)) {
             installCustomVulkanDriver(appDir);
         }
+        markRenutBoot(appDir);
         prepareLogFile(appDir);
 
         Log.i(TAG, "Pasta do jogo: " + appDir.getAbsolutePath() + "/game_data_root");
@@ -143,6 +144,8 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onPause() {
         clearDriverBootPending();
+        //noinspection ResultOfMethodCallIgnored
+        new File(getExternalFilesDir(null), "renut_boot.pending").delete();
         if (mOverlay != null) {
             mOverlay.onPause();
         }
@@ -530,6 +533,24 @@ public class GameActivity extends SDLActivity {
         new android.os.Handler(android.os.Looper.getMainLooper())
                 .postDelayed(this::clearDriverBootPending, 30000);
         return false;
+    }
+
+    /**
+     * O Renut pedido pelo "auto" (burstlimit.toml): renut_boot.pending durante os primeiros 30 s (ou ate sair). Se o
+     * jogo fechar antes, o launcher encontra-o (RenutSupport.checkBoot) e o "auto" passa ao Xenia.
+     */
+    private void markRenutBoot(File appDir) {
+        File pending = new File(appDir, "renut_boot.pending");
+        try {
+            String toml = new String(java.nio.file.Files.readAllBytes(new File(appDir, "burstlimit.toml").toPath()));
+            if (toml.contains("swordman_renderer = \"renut\"") && toml.contains("swordman_renderer_choice = \"auto\"")) {
+                //noinspection ResultOfMethodCallIgnored
+                pending.createNewFile();
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(pending::delete, 30000);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "renut_boot", e);
+        }
     }
 
     private void clearDriverBootPending() {

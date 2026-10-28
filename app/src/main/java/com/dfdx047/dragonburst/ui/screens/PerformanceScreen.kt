@@ -34,6 +34,7 @@ import com.dfdx047.dragonburst.data.GraphicsPreset
 import com.dfdx047.dragonburst.data.frameMode
 import com.dfdx047.dragonburst.data.withFrameMode
 import com.dfdx047.dragonburst.data.InternalResolution
+import com.dfdx047.dragonburst.data.ScreenFit
 import com.dfdx047.dragonburst.data.matchingPreset
 import com.dfdx047.dragonburst.data.recommendedPreset
 import com.dfdx047.dragonburst.data.withPreset
@@ -140,7 +141,10 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                     "xenos" to "Xenia",
                 ),
                 selected = c.renderer,
-                onSelect = { v -> vm.updateConfig { it.copy(renderer = v) } },
+                onSelect = { v ->
+                    com.dfdx047.dragonburst.data.RenutSupport.clearBootFailure()
+                    vm.updateConfig { it.copy(renderer = v) }
+                },
             )
             StatusLine(
                 stringResource(if (c.useRenut) R.string.perf_renderer_uses_renut else R.string.perf_renderer_uses_xenia),
@@ -188,7 +192,9 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             SettingSegmented(
                 title = stringResource(R.string.settings_resolution),
                 subtitle = stringResource(R.string.perf_resolution_sub),
-                options = InternalResolution.entries.filter { c.useRenut || it != InternalResolution.P1080 }.map { r -> r to r.label },
+                options = InternalResolution.entries.filter { c.useRenut || it != InternalResolution.P1080 }.map { r ->
+                    r to if (r == InternalResolution.SCREEN) stringResource(R.string.res_screen, if (c.useRenut) ScreenFit.renutHeight(c.letterbox) else ScreenFit.height(c.letterbox)) else r.label
+                },
                 selected = c.resolution,
                 onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
             )

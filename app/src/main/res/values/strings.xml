@@ -296,6 +296,7 @@
     <string name="perf_frameskip">Draw every other frame</string>
     <string name="perf_frameskip_sub">Keeps the 60 FPS game logic but only draws one of every two frames: about half the GPU work. Diagnostic; for smooth play prefer 30 FPS.</string>
     <string name="perf_resolution_sub">What the game is drawn at, then stretched to the screen. 720p is the console resolution; 2K = 1440p (2x), 4K = 2160p (3x).</string>
+    <string name="res_screen">Screen (%1$dp)</string>
     <string name="perf_resolution_mem">2K and 4K need much more GPU memory. On Mali GPUs keep 720p or lower.</string>
     <string name="perf_effects_title">Game effects</string>
     <string name="perf_effects_sub">Off by default, as in the PC version. Turning them on costs GPU (avoid on Mali).</string>
@@ -502,6 +503,7 @@
     <string name="drivers_turnip_auto">With Turnip active, TU_DEBUG=%1$s is applied automatically on this GPU.</string>
     <string name="drivers_boot_failed">The driver %1$s closed the game on startup, so the system driver is being used. Choose another driver (or the same one again) to try it again.</string>
     <string name="drivers_renut_missing">Last time the Renut was tried, the driver lacked what it needs (%1$s), so the game used Xenia. Turnip usually has it.</string>
+    <string name="drivers_renut_boot_failed">On the last try the Renut closed the game at startup, so Auto now uses Xenia. Choosing the renderer again (Performance) tries the Renut again.</string>
     <string name="turnip_compat_ir3_nopreamble">Shader compiler: no preamble (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Shader compiler: no UBO optimization (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Shader compiler: no 16-bit math (IR3 nofp16)</string>
@@ -526,6 +528,10 @@
     <string name="gpu_lost_text">The graphics driver stopped responding during the game, so the game returned here instead of closing. What the game had saved is kept (it saves after fights and option changes).\n\nIf it happens again, try another driver in the Drivers tab.</string>
     <string name="gpu_lost_text_other">The graphics driver stopped responding during the game, so the game returned here instead of closing. What the game had saved is kept (it saves after fights and option changes).\n\nIf it happens again, try a lighter graphics preset (Light or Minimum) in the Performance tab, and send the logs (Export logs) in an issue on GitHub.</string>
     <string name="gpu_lost_ok">OK</string>
+    <string name="screen_res_title">Draw at the screen\'s resolution?</string>
+    <string name="screen_res_text">This screen shows the game in %1$d lines (16:9 on a smaller screen). Drawing more than that costs GPU time you never see: with \"Screen resolution\" the game is drawn at %2$dp and runs faster. You can change it in Performance.</string>
+    <string name="screen_res_use">Use %1$dp</string>
+    <string name="screen_res_keep">Keep</string>
     <string name="settings_offline_delay">Input delay</string>
     <string name="settings_offline_delay_sub">Offline fights. Original: the game\'s own 3 frames (50 ms), as on the Xbox 360. Reduced: a press acts on the next frame. From the next fight.</string>
     <string name="input_delay_reduced">Reduced</string>

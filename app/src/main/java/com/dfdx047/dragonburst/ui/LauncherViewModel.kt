@@ -653,6 +653,22 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         prefs.turnipNoticeShown = true
     }
 
+    /**
+     * Telas pequenas (RG Cube: 720x720, a imagem 16:9 ocupa 720x405): no primeiro arranque sugere desenhar na altura
+     * que a imagem ocupa (InternalResolution.SCREEN), em vez de 720p que a tela nao mostra. Depois do aviso da GPU.
+     */
+    var showScreenResNotice by mutableStateOf(
+        !prefs.screenResNoticeShown && com.dfdx047.dragonburst.data.ScreenFit.small() &&
+            config.resolution != com.dfdx047.dragonburst.data.InternalResolution.SCREEN,
+    )
+        private set
+
+    fun answerScreenResNotice(use: Boolean) {
+        showScreenResNotice = false
+        prefs.screenResNoticeShown = true
+        if (use) updateConfig { it.copy(resolution = com.dfdx047.dragonburst.data.InternalResolution.SCREEN) }
+    }
+
     fun refreshDrivers() {
         viewModelScope.launch(Dispatchers.IO) {
             installedDrivers = DriverRepository.installed()
@@ -819,6 +835,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     // Fica no fim da classe: as propriedades acima ja tem de estar inicializadas.
     init {
         viewModelScope.launch(Dispatchers.IO) {
+            // Antes de gravar o toml: o Renut do "auto" fechou o jogo no ultimo arranque?
+            com.dfdx047.dragonburst.data.RenutSupport.checkBoot()
             val loaded = GameConfig.load()
             withContext(Dispatchers.Main) { config = loaded }
             // Garante que o toml existe com as opcoes do launcher desde o primeiro arranque.

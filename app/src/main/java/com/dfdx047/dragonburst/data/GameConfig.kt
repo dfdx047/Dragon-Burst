@@ -74,16 +74,26 @@ data class GameConfig(
     val nativeLinearDepth: Boolean = true,    // dbz3_bl_native_linear_depth (render nativo: profundidade linear por compute)
     val nativeIntoTexture: Boolean = true,    // dbz3_render_into_texture (passo 4: passes direto na textura)
     val nativePostLite: Boolean = true,       // dbz3_resolve_dedupe + dbz3_skip_null_draws + dbz3_bl_native_post_lite (passo 3) + dbz3_bl_native_contour/_downsample/_blur/_glow_composite (3b)
-    // Renderizador (28/10, como no Zandatsu): auto = o Renut (Direct3D nativo, docs/renut) nas GPUs onde foi validado
-    // (RenutSupport.validatedGpu), senao o Xenia; renut / xenos = escolha do jogador. Se o driver nao tiver o que o
-    // Renut precisa, o jogo usa o Xenia nessa sessao e diz porque (renut_support.txt, ecra Drivers).
+    // Renderizador (28/10, como no Zandatsu): auto (por omissao) = o Renut (Direct3D nativo, docs/renut) salvo onde
+    // RenutSupport.validatedGpu o exclui, e o Xenia como recurso; renut / xenos = escolha do jogador. Se o driver nao
+    // tiver o que o Renut precisa, o jogo usa o Xenia nessa sessao e diz porque (renut_support.txt, ecra Drivers).
     val renderer: String = "auto",
 ) {
     /** O jogo arranca no Renut com estas opcoes (escolha + GPU). */
     val useRenut: Boolean get() = renderer == "renut" || (renderer == "auto" && RenutSupport.validatedGpu())
 
-    /** sa2_render_height_handheld: a altura que o Renut desenha (360-2160; 1080p so ele faz). */
-    val renutHeight: Int get() = resolution.height
+    /**
+     * sa2_render_height_handheld: a altura que o Renut desenha (360-2160; 1080p so ele faz). A "Resolucao da tela" no
+     * Renut e a das suas alturas mais perto da tela (ScreenFit.renutHeight: o Cube 405 -> 360).
+     */
+    val renutHeight: Int get() = if (resolution == InternalResolution.SCREEN) ScreenFit.renutHeight(letterbox) else resolution.height
+
+    /** draw_resolution_percent do Xenia (escala 1): a percentagem de 1280x720; "Resolucao da tela" a altura exata, ate 100. */
+    val drawPercent: Int get() = when {
+        resolution.scale > 1 -> 100
+        resolution == InternalResolution.SCREEN -> (ScreenFit.height(letterbox) * 100 / 720).coerceIn(50, 100)
+        else -> resolution.percent
+    }
 
     /** Escala inteira (1 abaixo de 720p e em 720p, 2 em 1440p, 3 em 2160p). */
     val resolutionScale: Int get() = resolution.scale
@@ -98,6 +108,8 @@ data class GameConfig(
         "swordman_renderer" to if (useRenut) "renut" else "xenos",
         "swordman_renderer_choice" to renderer,
         "sa2_render_height_handheld" to renutHeight,
+        // "Resolucao da tela" (28/10): a altura que a imagem ocupa na tela, refeita a cada gravacao.
+        "swordman_resolution_choice" to if (resolution == InternalResolution.SCREEN) "screen" else resolution.label,
         "swordman_aspect" to if (letterbox) "original" else "stretch",
         "gpu_allow_invalid_fetch_constants" to true,
         // O launcher do APP substitui o ecra inicial do PC.
@@ -107,7 +119,7 @@ data class GameConfig(
         "draw_resolution_scale_y" to resolution.scale.coerceIn(1, MAX_RESOLUTION_SCALE),
         // Abaixo de 720p (patch 0089, Vulkan): 67 = 858x483 ("480p"), 75 = 960x540. So vale com
         // a escala 1; 100 desliga.
-        "draw_resolution_percent" to if (resolution.scale > 1) 100 else resolution.percent,
+        "draw_resolution_percent" to drawPercent,
         "present_effect" to presentEffect,
         "present_fsr_quality_mode" to fsrQuality,
         "present_fsr_sharpness_reduction" to fsrSharpness.coerceIn(0.0, 2.0),
@@ -241,7 +253,8 @@ data class GameConfig(
                 else -> def
             }
             return GameConfig(
-                resolution = if (int("sa2_render_height_handheld", 0) == 1080) InternalResolution.P1080
+                resolution = if (str("swordman_resolution_choice", "") == "screen") InternalResolution.SCREEN
+                else if (int("sa2_render_height_handheld", 0) == 1080) InternalResolution.P1080
                 else InternalResolution.from(
                     int("draw_resolution_scale_x", 1),
                     int("draw_resolution_percent", 100),
@@ -363,6 +376,9 @@ fun FrameMode.cvars(): Map<String, String> = mapOf(
  * targets ficam com o tamanho de 1x e 150% nao cabe neles).
  */
 enum class InternalResolution(val scale: Int, val percent: Int, val label: String, val height: Int) {
+    // "Resolucao da tela" (28/10): a altura que a imagem ocupa na tela (ScreenFit; RG Cube, 720x720 a 16:9: 405p).
+    // percent e height aqui sao os de 720p; os reais vem de GameConfig.renutHeight / drawPercent.
+    SCREEN(1, 100, "screen", 720),
     P480(1, 67, "480p", 480),
     P540(1, 75, "540p", 540),
     P720(1, 100, "720p", 720),
@@ -384,6 +400,33 @@ enum class InternalResolution(val scale: Int, val percent: Int, val label: Strin
             else -> P720
         }
     }
+}
+
+/**
+ * A altura que a imagem do jogo ocupa na tela (deitada): com barras (16:9), min(altura, largura * 9 / 16); esticada,
+ * a altura toda. Pela tela fisica (Resources.getSystem): no RG Cube (720x720) da 405, no RP5 (1920x1080) 1080.
+ */
+object ScreenFit {
+    fun height(letterbox: Boolean): Int {
+        val m = android.content.res.Resources.getSystem().displayMetrics
+        val w = maxOf(m.widthPixels, m.heightPixels)
+        val h = minOf(m.widthPixels, m.heightPixels)
+        val fit = if (letterbox) minOf(h, w * 9 / 16) else h
+        return (fit and 1.inv()).coerceIn(360, 2160)
+    }
+
+    /**
+     * As alturas que o Renut desenha (codigos de RenderScale, render_scale.h: 1/2, 2/3, 3/4, 1, 3/2, 2, 3 de 720p; 405
+     * nao e uma delas e mexer na tabela recompila a cache de shaders): a mais perto da tela, no empate a menor.
+     */
+    private val RENUT_HEIGHTS = intArrayOf(360, 480, 540, 720, 1080, 1440, 2160)
+    fun renutHeight(letterbox: Boolean): Int {
+        val fit = height(letterbox)
+        return RENUT_HEIGHTS.minByOrNull { kotlin.math.abs(it - fit) * 2 + (if (it > fit) 1 else 0) } ?: 720
+    }
+
+    /** Tela pequena: a imagem ocupa menos de 540 linhas (o launcher sugere a "Resolucao da tela" no 1.o arranque). */
+    fun small(): Boolean = height(true) < 540
 }
 
 /**
@@ -494,23 +537,40 @@ fun recommendedPreset(): GraphicsPreset {
 }
 
 /**
- * Onde o Renut foi validado (28/10): Adreno (RP5 650, Odin 2 Mini 740, com Turnip quando o driver do sistema nao tem
- * shaderInt64) e Mali Valhall (RG Cube, Mali-G57). Fora disso o "auto" fica no Xenia e o Renut so por escolha. A
- * Adreno 710/720 com o driver do sistema da SIGBUS ao abrir o Renut (Zandatsu): ficam no Xenia.
+ * O "auto" (renderizador por omissao, 28/10 a tarde): o Renut em qualquer GPU, e o jogo usa o Xenia nessa sessao quando
+ * o driver nao tem o que o Renut precisa (renut_glue.cpp, renut_support.txt, aviso no ecra Drivers). Validado no RP5
+ * (Adreno 650, Turnip e o driver do sistema, renut/0109), no Odin 2 Mini (740) e no RG Cube (Mali-G57). Fora: a Adreno
+ * 710/720 com o driver do sistema da SIGBUS ao abrir o Renut (Zandatsu), e um aparelho onde o Renut do "auto" fechou o
+ * jogo no arranque (renut_boot.pending que o GameActivity deixa nos primeiros 30 s; checkBoot no launcher).
  */
 object RenutSupport {
+    private val pending get() = java.io.File(AppPaths.appDir, "renut_boot.pending")
+    private val failed get() = java.io.File(AppPaths.appDir, "renut_boot.failed")
+
     fun validatedGpu(): Boolean {
+        if (failed.exists()) return false
         if (com.dfdx047.dragonburst.drivers.DriverRepository.isAdreno()) {
             val adreno = com.dfdx047.dragonburst.drivers.TurnipSupport.detect().adreno
             return adreno !in 710..722
         }
-        val soc = ((if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL ?: "" else "") + " " +
-            android.os.Build.HARDWARE + " " + android.os.Build.BOARD).uppercase(java.util.Locale.ROOT)
-        // Mali-G57 (Unisoc T7xx/T8xx, Dimensity 700-1080), G68/G77/G78 e G6xx/G7xx (Dimensity 1100+, Tensor).
-        return listOf(
-            "T820", "T770", "T760", "T750", "UMS9620", "MT6877", "MT6875", "MT6873", "MT6855", "MT6853", "MT6833",
-            "MT6879", "MT6893", "MT6891", "MT6886", "MT6983", "MT6985", "MT6989", "MT6991", "MT6895", "MT6896",
-            "MT6897", "GS101", "GS201", "ZUMA",
-        ).any { it in soc }
+        return true
+    }
+
+    /**
+     * No arranque do launcher (o jogo nao esta a correr): o marcador do ultimo arranque do Renut ainda la esta, logo o
+     * jogo fechou nos primeiros 30 s. O "auto" passa ao Xenia e o ecra Drivers diz porque.
+     */
+    fun checkBoot() {
+        try {
+            if (!pending.exists()) return
+            pending.renameTo(failed)
+            java.io.File(AppPaths.appDir, "renut_support.txt").writeText("no\nboot\n")
+        } catch (_: Exception) {
+        }
+    }
+
+    /** O jogador escolheu o renderizador outra vez: o "auto" volta a tentar o Renut. */
+    fun clearBootFailure() {
+        failed.delete()
     }
 }

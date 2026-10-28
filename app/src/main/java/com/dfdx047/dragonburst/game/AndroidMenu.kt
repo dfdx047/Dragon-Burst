@@ -58,6 +58,7 @@ import com.dfdx047.dragonburst.data.DisplayRates
 import com.dfdx047.dragonburst.data.FrameMode
 import com.dfdx047.dragonburst.data.GameConfig
 import com.dfdx047.dragonburst.data.InternalResolution
+import com.dfdx047.dragonburst.data.ScreenFit
 import com.dfdx047.dragonburst.data.LauncherPrefs
 import com.dfdx047.dragonburst.data.TouchMode
 import com.dfdx047.dragonburst.data.cvars
@@ -407,16 +408,19 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         ) { v -> set(c.copy(renderer = v), emptyMap()) }
         list += choice(
             s(R.string.settings_resolution), s(R.string.perf_resolution_sub),
-            InternalResolution.entries.filter { renut || it != InternalResolution.P1080 }.map { it to it.label },
+            InternalResolution.entries.filter { renut || it != InternalResolution.P1080 }.map {
+                it to if (it == InternalResolution.SCREEN) s(R.string.res_screen, if (c.useRenut) ScreenFit.renutHeight(c.letterbox) else ScreenFit.height(c.letterbox)) else it.label
+            },
             c.resolution, restart = !renut,
         ) { v ->
+            val n = c.copy(resolution = v)
             set(
-                c.copy(resolution = v),
+                n,
                 mapOf(
                     "draw_resolution_scale_x" to "${v.scale}",
                     "draw_resolution_scale_y" to "${v.scale}",
-                    "draw_resolution_percent" to "${if (v.scale > 1) 100 else v.percent}",
-                    "sa2_render_height_handheld" to "${v.height}",
+                    "draw_resolution_percent" to "${n.drawPercent}",
+                    "sa2_render_height_handheld" to "${n.renutHeight}",
                 ),
             )
         }

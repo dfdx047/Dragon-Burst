@@ -105,7 +105,11 @@ fun DriversScreen(vm: LauncherViewModel) {
                 }
                 val renutMissing = vm.renutMissing
                 if (renutMissing.isNotEmpty()) {
-                    StatusLine(stringResource(R.string.drivers_renut_missing, renutMissing), Level.WARN)
+                    StatusLine(
+                        if (renutMissing == "boot") stringResource(R.string.drivers_renut_boot_failed)
+                        else stringResource(R.string.drivers_renut_missing, renutMissing),
+                        Level.WARN,
+                    )
                 }
             }
         }
