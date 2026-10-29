@@ -1,0 +1,65 @@
+Dragon Burst 0195: off screen, an alertable wait stops between its 1 ms slices
+
+An alertable wait (rex::thread::Wait, SignalAndWait and WaitMultiple with is_alertable) checks for queued user
+callbacks (APCs) every kAlertablePollSlice (1 ms). The Burst Limit's render thread (820EA188) waits alertable in the
+frame handshake (sub_822A2E50 -> NtSignalAndWaitForSingleObjectEx) and never comes back to the guest while the
+game is off screen, so it woke ~930 times a second inside the wait (Cube Xenia: 1.4-1.7% of a core instead of
+0.5%). A slice that ran out now calls rex_background_wait (SDK 0189; weak here, for tools that link the core without
+the runtime) and the wait checks its object again. In the foreground it is one atomic load.
+
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -62,6 +62,11 @@
+ #define REX_HAS_SIGEV_THREAD_ID 0
+ #endif
+ 
++
++extern "C" {
++__attribute__((weak)) extern bool (*rex_background_wait)(void);
++}
++
+ namespace rex::thread {
+ 
+ #if REX_PLATFORM_ANDROID
+@@ -1259,6 +1264,16 @@
+ 
+ constexpr auto kAlertablePollSlice = std::chrono::milliseconds(1);
+ 
++// Dragon Burst (0195): an alertable wait looks for queued callbacks (APCs) every 1 ms slice; off screen a slice that
++// ran out waits for the app instead (rex_background_wait, SDK 0189, in the runtime: weak here, for the tools that
++// link this library without it), then the wait checks its object again. ~930 wake-ups a second fewer per waiting
++// guest thread in the background (the frame handshake). Nothing in the foreground: one atomic load.
++void BackgroundSlice() {
++  if (&rex_background_wait != nullptr && rex_background_wait) {
++    rex_background_wait();
++  }
++}
++
+ class ScopedAlertableState {
+  public:
+   explicit ScopedAlertableState(bool alertable) : alertable_(alertable) {
+@@ -1372,6 +1387,7 @@
+     if (result != WaitResult::kTimeout) {
+       return result;
+     }
++    BackgroundSlice();
+   }
+ }
+ 
+@@ -1413,6 +1429,7 @@
+     if (result != WaitResult::kTimeout) {
+       return result;
+     }
++    BackgroundSlice();
+   }
+ }
+ 
+@@ -1446,6 +1463,7 @@
+     if (result.first != WaitResult::kTimeout) {
+       return result;
+     }
++    BackgroundSlice();
+   }
+ }
+ 

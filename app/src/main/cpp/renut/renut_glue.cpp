@@ -186,9 +186,12 @@ REX_HOOK_RAW(sub_822A2E50) {  // SignalObjectAndWait do jogo (r5 = timeout em ms
   if (banjo::renut_gpu::Active()) StartVBlank();
   const uint32_t lr = uint32_t(ctx.lr);
   const int32_t timeout_ms = REXCVAR_GET(swordman_renut_handshake_ms);
-  if (!banjo::renut_gpu::Active() || timeout_ms <= 0 || ctx.r5.u32 != 0xFFFFFFFFu ||
-      (lr != 0x820E79D4u && lr != 0x820E7A40u && lr != 0x820EA200u)) {
+  const bool handshake = lr == 0x820E79D4u || lr == 0x820E7A40u || lr == 0x820EA200u;
+  if (!banjo::renut_gpu::Active() || timeout_ms <= 0 || ctx.r5.u32 != 0xFFFFFFFFu || !handshake) {
     __imp__sub_822A2E50(ctx, base);
+    // Fora da tela (tambem no Xenia) a thread do jogo voltava aqui ~930 vezes por segundo: acordada pelo proprio
+    // evento que sinaliza. Depois da chamada o mutex ja foi libertado; o chamador volta a ver a condicao.
+    if (handshake) DragonBurstWaitForeground();
     return;
   }
   renut::gpu::RunReadyCallbacks();
@@ -199,10 +202,10 @@ REX_HOOK_RAW(sub_822A2E50) {  // SignalObjectAndWait do jogo (r5 = timeout em ms
     const uint64_t timeouts = g_handshake_timeouts.fetch_add(1, std::memory_order_relaxed) + 1;
     if ((timeouts & (timeouts - 1)) == 0)  // 1, 2, 4, 8...
       REXLOG_INFO("Renut: handshake da frame, {} timeouts em {} esperas", timeouts, waits);
-    // Fora da tela a outra thread esta parada (no Swap ou no tick): sem voltar a cada 8 ms. Aqui o mutex ja foi
-    // libertado e o chamador volta a ver a condicao depois.
-    DragonBurstWaitForeground();
   }
+  // Fora da tela a outra thread esta parada (no Swap ou no tick): sem voltar a cada 8 ms nem a cada acordar. Aqui o
+  // mutex ja foi libertado e o chamador volta a ver a condicao depois.
+  DragonBurstWaitForeground();
 }
 
 // ---------------------------------------------------------------------------------------------------------------

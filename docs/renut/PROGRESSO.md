@@ -489,3 +489,42 @@ Regressao (t26, Renut, `reg.sh` luta CPU x CPU ate ao fim, `camp.sh` 01 Saiyan A
 47,7/41,3 (t19 45,9/40,0) e campanha 50,2/42,4 (t19 53,8/45,3) com GPU 16,3-16,6 ms, mas acabou a 84 C (a campanha
 comecou depois de arrefecer a 62 C so 60 s); imagem igual nas fotos (cabelo preto, sem quadrados, Now Loading).
 APK t26: sha256 edbf7a4575a2cee85bc4faa4527be9c6b2bac92bc8bb5e1cb8e6ac963b94d575.
+
+## A: merge com a versao de PC (29/10, 09:15-10:30 Lisboa)
+
+Base deste port: o jogo em v7.3 (`external/burstlimit` 8faff03, igual ao `origin/main` do PC a 29/10: nada de novo
+no jogo desde 27/10; a v7.3 ja entrou pela patch de jogo 0005) e o SDK em 465f9ef (12/10). O PC v7.3 aponta o SDK
+para 3c41e4b (27/10): 38 commits que o Android nao tinha (so o cf75e40 tinha vindo, na 0186). A 0005 desligava no
+Android o que dependia deles (perfil movel, sonda de latencia, vigia da UI, lobby, vblank do ecra, teclado).
+
+| PC | O que e | Android | Porque / onde |
+|---|---|---|---|
+| e6fabfb | vsync: sem tempestade de interrupts quando o relogio recua, catch-up de 8 vblanks; leitura dos comandos no pedido do jogo (`input_poll_on_read`, menos atraso); sonda de latencia | trazido | SDK 0192; sonda com present = quadros mostrados |
+| 9dbb755 | menos CPU no presenter e no vblank | adaptado | o do presenter e so Windows; o vblank dorme com nanosleep ate 0,2 ms antes (era 2 ms a ceder) - 0192 |
+| 40f162f | perfil assinado num utilizador movel (Xbox LIVE com qualquer comando) | trazido | 0192 + jogo 0009 (tira a guarda da 0005) |
+| a126623 | conquistas por perfil | trazido (sem o menu do PC) | 0192; o ficheiro antigo passa para `achievements/<XUID>/` |
+| 92eed19 | packs de texturas: alfa pre-multiplicado, limite 8192, mips, orcamento de RAM, cores ARGB | trazido (parte comum) | 0192; o lado D3D12 fica fora, o Vulkan (0049) ja usa os niveis da chave |
+| b5ef429 | vigia da thread da UI | trazido (sem o proxy do Wine) | 0192, e a 0193 cala-o fora da tela (o SDL segura a UI na pausa) |
+| 0cac967 | teclado como comando; `hid_generic_mapping` | so o `hid_generic_mapping` | comandos sem mapeamento SDL passam a usar-se; o teclado e de PC |
+| 37734bb, fa21d55 | `input_test_pads`; comando `gpu_state`, passe `draws_focus` | trazido | ferramentas de teste e de diagnostico |
+| 643fdda | falta de escrita sem VirtualQuery | fora | a 0007 do Android ja nem faz a consulta |
+| c4db5a3 | ritmo do presenter com VSync, vblank preso ao ecra | fora | o presenter do Android e outro (0016/0092/0112) e o Renut tem o seu VBlank; fica para o B2 (120 Hz) se fizer falta |
+| d0f8368 | lobby pela internet liga no arranque | fora | o cliente do lobby e WinHTTP; no Android e um stub (o lobby ainda nao existe aqui) |
+| 297550f, 62bea9d | menu rapido do PC | fora | no Android o menu e o InGameMenu.kt |
+| 6aaf31a, 197ff8c, a3ccb32, ffe5575, 3c41e4b, 9a10662, c49a54e e a serie do renderizador nativo (e8940b7 ... 35ec05c, 16 commits) | D3D12, DLSS, adaptadores, renderizador nativo D3D12 | fora | so PC; no Android o renderizador nativo e o Renut |
+
+A serie inteira (194 patches do SDK, 9 do jogo) aplicada de novo sobre o SDK 465f9ef e o jogo 8faff03 da a mesma
+arvore (diff -r vazio).
+
+Achado no caminho (fora da tela, t29/t30): algumas vezes uma thread do jogo acordava ~930 vezes por segundo no
+handshake da frame (sub_822A2E50, `NtSignalAndWaitForSingleObjectEx`): no Xenia o handshake nao tinha o gancho do
+Renut, e a thread de render (820EA188) espera ali em modo alertable, que no SDK do POSIX acorda a cada 1 ms para ver
+os APCs (`kAlertablePollSlice`). Agora: o gancho do handshake espera pela volta depois de cada chamada (Renut e
+Xenia), a SDK 0194 depois de qualquer espera do kernel que acabe em STATUS_TIMEOUT, e a 0195 entre as fatias de 1 ms
+das esperas alertable. Cube Xenia fora da tela (t32): 1,1-1,3 % e 1085-1090 acordares/s, so o relogio de 1 ms do
+kernel (antes 1,4-1,7 % e ~2000/s).
+
+Regressao depois do merge (t32, Renut): RP5 luta 30,0/29,9 (GPU 10,5 ms) e campanha 30,0/29,9 (10,7 ms), como antes;
+Cube 540p luta 53,4/42,1 e campanha 50,3/41,2 (t26: 47,7/41,3 e 50,2/42,4); Xenia no RP5 (t31) luta ate ao fim com
+os golpes certos. Fora da tela (t32): RP5 Xenia 1,6 %, RP5 Renut com a tela desligada 1,0 %, Cube 1,1-1,3 %; mesmo
+processo e som na volta, vigia da UI calado, conquistas por perfil no log (`achievements/B13EBABEBABEBABE/`).

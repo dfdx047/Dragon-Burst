@@ -1,0 +1,75 @@
+Dragon Burst 0194: off screen, a guest wait that times out waits for the app
+
+0189 stops the guest threads that poll with KeDelayExecutionThread or NtYieldExecution; some poll with timed
+waits instead: in some runs a guest thread (the frame handshake, sub_822A2E50, in NtSignalAndWaitForSingleObjectEx)
+woke ~920 times a second with the game off screen (RP5 Renut 2.9% instead of 1.6% of a core, Xenia too). Now
+KeWaitForSingleObject, NtWaitForSingleObjectEx, KeWaitForMultipleObjects, NtWaitForMultipleObjectsEx and
+NtSignalAndWaitForSingleObjectEx call rex_background_wait when the wait ran out of time (X_STATUS_TIMEOUT); a wait
+that something signalled returns at once as before. In the foreground it is one atomic load.
+
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
+--- a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
+@@ -54,6 +54,17 @@
+ 
+ namespace rex::kernel::xboxkrnl {
+ using namespace rex::system;
++
++namespace {
++// Dragon Burst (0194): a wait that ran out of time is a thread polling (the frame handshake, a worker's 1 ms
++// waits): off screen it stops there until the app is back. A wait that something signalled goes on as before.
++X_STATUS BackgroundAfterTimeout(X_STATUS result) {
++  if (result == X_STATUS_TIMEOUT && rex_background_wait) {
++    rex_background_wait();
++  }
++  return result;
++}
++}  // namespace
+ using rex::runtime::current_ppc_context;
+ 
+ // r13 + 0x100: pointer to thread local state
+@@ -868,7 +879,7 @@
+     XThread::GetCurrentThread()->DeliverAPCs();
+   }
+ 
+-  return result;
++  return BackgroundAfterTimeout(result);
+ }
+ 
+ u32 KeWaitForSingleObject_entry(mapped_void object_ptr, u32 wait_reason, u32 processor_mode,
+@@ -900,7 +911,7 @@
+     result = X_STATUS_INVALID_HANDLE;
+   }
+ 
+-  return result;
++  return BackgroundAfterTimeout(result);
+ }
+ 
+ u32 KeWaitForMultipleObjects_entry(u32 count, mapped_u32 objects_ptr, u32 wait_type,
+@@ -926,7 +937,7 @@
+   if (alertable && result == X_STATUS_USER_APC) {
+     XThread::GetCurrentThread()->DeliverAPCs();
+   }
+-  return result;
++  return BackgroundAfterTimeout(result);
+ }
+ 
+ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, rex::be<uint32_t>* handles,
+@@ -949,7 +960,7 @@
+   if (alertable && result == X_STATUS_USER_APC) {
+     XThread::GetCurrentThread()->DeliverAPCs();
+   }
+-  return result;
++  return BackgroundAfterTimeout(result);
+ }
+ 
+ u32 NtWaitForMultipleObjectsEx_entry(u32 count, mapped_u32 handles, u32 wait_type, u32 wait_mode,
+@@ -977,7 +988,7 @@
+     XThread::GetCurrentThread()->DeliverAPCs();
+   }
+ 
+-  return result;
++  return BackgroundAfterTimeout(result);
+ }
+ 
+ // Guest-memory IRQL helpers - read/write current_irql directly from PCR.

@@ -1,0 +1,39 @@
+Dragon Burst game 0009: v7.3's sign-in with any controller and latency probe on Android too
+
+SDK 0192 brought the PC SDK's movable signed-in user (40f162f) and the latency probe (e6fabfb), which 0005 had left
+out for this SDK: the sign-in moves to the pad that pressed Start, and BurstLimitPlayTime logs player 1's action for
+latency_log. The UI watchdog (b5ef429) is back by itself (0005's __has_include).
+
+diff --git a/src/burstlimit_signin.cpp b/src/burstlimit_signin.cpp
+--- a/src/burstlimit_signin.cpp
++++ b/src/burstlimit_signin.cpp
+@@ -34,10 +34,5 @@
+   if (!kernel || !kernel->user_profile()) {
+     return;
+   }
+-#ifndef __ANDROID__
+   kernel->user_profile()->set_signed_in_user(uint32_t(pad));
+-#else
+-  // Dragon Burst: no Android o jogador 1 e sempre o utilizador 0 (comando ou toque);
+-  // o SDK daqui nao tem o perfil movel do PC (40f162f).
+-#endif
+ }
+diff --git a/src/burstlimit_patches.cpp b/src/burstlimit_patches.cpp
+--- a/src/burstlimit_patches.cpp
++++ b/src/burstlimit_patches.cpp
+@@ -730,7 +730,6 @@
+ // +8 frames, +12 seconds, capped at 999:59:59), jumping to its end
+ // (0x8221933C): real seconds instead.
+ void BurstLimitPlayTime(PPCRegister& r31) {
+-#ifndef __ANDROID__  // Dragon Burst: a sonda de latencia do PC nao existe no SDK do Android
+   if (rex::perf::IsLatencyWindowOpen()) {
+     // Latency probe (latency_log): the frame player 1's action changes after
+     // a press. Player table 0x84239C10, fighter = *(player + 44), action at
+@@ -752,7 +751,6 @@
+       last_action = action;
+     }
+   }
+-#endif
+   static std::chrono::steady_clock::time_point last{};
+   static double pending = 0.0;
+   const auto now = std::chrono::steady_clock::now();

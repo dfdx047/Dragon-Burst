@@ -1,0 +1,59 @@
+Dragon Burst 0193: the UI watchdog is quiet while the app is off screen
+
+With the app in the background SDL holds the UI thread in its pause (SDL_HINT_ANDROID_BLOCK_ON_PAUSE), so the
+watchdog from 0192 (the PC's b5ef429) logged "the window hasn't answered for 5 s, 15 s, 30 s" on every Home.
+SetUIWatchdogBackground (called by the app with the background pause) holds the reports and starts the count of a
+stall again on return.
+
+diff --git a/include/rex/ui/ui_watchdog.h b/include/rex/ui/ui_watchdog.h
+--- a/include/rex/ui/ui_watchdog.h
++++ b/include/rex/ui/ui_watchdog.h
+@@ -24,6 +24,10 @@
+ // Starts the watchdog thread once (ui_watchdog cvar).
+ void StartUIWatchdog();
+ 
++// Dragon Burst (Android): the app is off screen (SDL holds the UI thread in its pause); no reports meanwhile, and
++// the count of a stall starts again on return.
++void SetUIWatchdogBackground(bool background);
++
+ // Names a stretch of UI thread work for the watchdog, restoring the previous
+ // name at the end of the scope.
+ class UIThreadPhase {
+diff --git a/src/ui/ui_watchdog.cpp b/src/ui/ui_watchdog.cpp
+--- a/src/ui/ui_watchdog.cpp
++++ b/src/ui/ui_watchdog.cpp
+@@ -28,6 +28,7 @@
+ // Steady-clock ms when the UI thread started the event it is handling now, 0
+ // while it waits for events (idle).
+ std::atomic<int64_t> g_busy_since_ms{0};
++std::atomic<bool> g_background{false};
+ 
+ int64_t NowMs() {
+   return std::chrono::duration_cast<std::chrono::milliseconds>(
+@@ -41,6 +42,9 @@
+   int64_t next_report_ms = 0;
+   for (;;) {
+     std::this_thread::sleep_for(std::chrono::milliseconds(500));
++    if (g_background.load(std::memory_order_acquire)) {
++      continue;
++    }
+     const int64_t since = g_busy_since_ms.load(std::memory_order_acquire);
+     const int64_t now = NowMs();
+     if (since == 0 || since != reported_since) {
+@@ -86,6 +90,16 @@
+   g_busy_since_ms.store(0, std::memory_order_release);
+ }
+ 
++void SetUIWatchdogBackground(bool background) {
++  if (!background) {
++    int64_t since = g_busy_since_ms.load(std::memory_order_acquire);
++    if (since != 0) {
++      g_busy_since_ms.compare_exchange_strong(since, NowMs(), std::memory_order_acq_rel);
++    }
++  }
++  g_background.store(background, std::memory_order_release);
++}
++
+ void StartUIWatchdog() {
+   static std::once_flag once;
+   std::call_once(once, [] {

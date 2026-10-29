@@ -1,0 +1,3195 @@
+Dragon Burst 0192: what the PC SDK (Burst Limit Recompiled v7.3, rexglue-sdk burstlimit 3c41e4b) added since this port's base (465f9ef) that applies to Android
+
+From the PC, adapted where this SDK differs:
+- e6fabfb: the VSync worker no longer fires vblanks forever when the guest clock reads a tick lower than before (an
+  interrupt storm), and after a long stall catches up 8 vblanks, not the whole backlog; input_poll_on_read (default
+  on): the controllers are read when the game asks for them (up to a frame less input delay); the latency probe
+  (latency_log, debug; present= is the frames shown here).
+- 9dbb755 (Android variant): the VSync worker sleeps to 0.2 ms before each vblank with nanosleep (microsecond
+  precise on Linux) instead of yield-spinning the last 2 ms (~12% of a core at 60 Hz); the PC uses a waitable timer.
+- 40f162f: the profile is signed in on one movable user index (a pad on user 1-3 still sees Xbox LIVE).
+- a126623 (without the PC quick menu part): achievement unlocks kept per profile, the old file moved there once.
+- 92eed19 (without the D3D12 texture cache): texture packs: premultiplied alpha, images over 8192 downscaled, mips
+  that follow the game's, the RAM budget for async loads, ARGB-swizzled k_8_8_8_8 colours.
+- b5ef429 (without the Wine proxy): the UI watchdog (ui_watchdog) logs where the UI thread is stuck for 5 s+.
+- 0cac967 (only hid_generic_mapping; the keyboard play is PC only): controllers SDL has no mapping for get a
+  generic gamepad layout instead of being ignored.
+- 37734bb: input_test_pads (idle virtual pads for tests); fa21d55: the gpu_state console command (host presents =
+  the frames shown here) and the draws_focus GPU profile pass.
+
+Left out (PC only): D3D12 and its native renderer (the Renut is Android's), DLSS, adapters, the PC quick menu,
+keyboard and mouse, the WinHTTP lobby, the display-locked vblank and present pacing of the PC presenter (c4db5a3),
+643fdda (0007 already skips the protection query on Android).
+
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -132,6 +132,11 @@
+   }
+ 
+   static uint32_t GuestToHostSwizzle(uint32_t guest_swizzle, uint32_t host_format_swizzle);
++  // The host swizzle for a texture made from a replacement image (RGBA8 in
++  // the colours the game shows): a fetch swizzle that only reorders the
++  // colour components of an RGBA-like format reads the image in its own
++  // order; anything else is applied like GuestToHostSwizzle.
++  static uint32_t ReplacementHostSwizzle(uint32_t guest_swizzle, uint32_t host_format_swizzle);
+ 
+   void TextureFetchConstantWritten(uint32_t index) { TextureFetchConstantsWritten(index, index); }
+   void TextureFetchConstantsWritten(uint32_t first_index, uint32_t last_index) {
+@@ -302,6 +307,9 @@
+     void LogAction(const char* action) const;
+ 
+     uint64_t replacement_content_hash_ = 0;
++    // The fetch swizzle of the binding that last asked for this texture's
++    // data (dumps are written in the colours that binding shows).
++    uint32_t last_guest_swizzle_ = 0x688;  // XYZW
+ 
+    protected:
+     // If track_usage is false, the texture won't be added to the LRU list.
+@@ -732,6 +740,9 @@
+   // Bit vector with bits reset on fetch constant writes to avoid parsing fetch
+   // constants again and again.
+   uint32_t texture_bindings_in_sync_ = 0;
++  // The fetch swizzle of the binding FindOrCreateTexture is looking a texture
++  // up for (a replacement's original is decoded in the colours it shows).
++  uint32_t replacement_lookup_swizzle_ = 0x688;  // XYZW
+ 
+   void InvalidateHashCache(uint32_t base_page) {
+     base_page_hash_cache_.erase(base_page);
+diff --git a/include/rex/graphics/pipeline/texture/replacement.h b/include/rex/graphics/pipeline/texture/replacement.h
+--- a/include/rex/graphics/pipeline/texture/replacement.h
++++ b/include/rex/graphics/pipeline/texture/replacement.h
+@@ -14,6 +14,10 @@
+  *              Replacement layout (scanned once at init, hot-reloaded on demand via Rescan()):
+  *                  replace/<hash16>.dds   (RGBA8/BGRA8 or BC1/BC2/BC3)
+  *                  replace/<hash16>.png   (RGBA8; loaded via stb_image)
++ *              Images are used with straight alpha, like the game's own
++ *              textures; a pack exported with premultiplied alpha is found
++ *              out and converted (texture_replace_alpha). Images bigger than
++ *              8192 per side are used halved until they fit.
+  *
+  *              Dump DDS format:
+  *                - Compressed formats (DXT1/DXT3/DXT5/DXN/CTX1/DXT3A/DXT5A):
+@@ -52,10 +56,28 @@
+ REXCVAR_DECLARE(bool, texture_replace_enabled);
+ REXCVAR_DECLARE(bool, texture_replace_preload);
+ REXCVAR_DECLARE(int32_t, texture_replace_ram_mb);
++REXCVAR_DECLARE(std::string, texture_replace_alpha);
+ REXCVAR_DECLARE(std::string, texture_folder);
+ 
+ namespace rex::graphics {
+ 
++// The original texture of a replacement, as the guest stores its base level -
++// copied when the replacement is looked up, so the loading thread can compare
++// the replacement with it (texture_replace_alpha).
++struct TextureReplacementGuest {
++  std::vector<uint8_t> bytes;
++  uint32_t width = 0;
++  uint32_t height = 0;
++  // The base level's row pitch in bytes (texture_util::TextureGuestLayout).
++  uint32_t row_pitch_bytes = 0;
++  bool tiled = false;
++  xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8;
++  xenos::Endian endianness = xenos::Endian::kNone;
++  // The fetch swizzle it's shown with (replacement images hold the colours
++  // the game shows).
++  uint32_t swizzle = 0x688;  // XYZW
++};
++
+ // ---------------------------------------------------------------------------
+ // Replacement descriptor returned to the injection path
+ // ---------------------------------------------------------------------------
+@@ -105,9 +127,22 @@
+   //   tiled        : TextureKey::tiled
+   //   format       : TextureKey::format
+   //   endianness   : TextureKey::endianness
++  //   guest_swizzle: the fetch constant swizzle the texture was bound with -
++  //                  when it only reorders the colour components (e.g. ARGB
++  //                  data read with ZYXW), the dump holds the colours the
++  //                  game shows, like replacement files do
+   void DumpTexture(uint64_t content_hash, uint32_t width, uint32_t height, uint32_t pitch_blocks,
+                    bool tiled, xenos::TextureFormat format, xenos::Endian endianness,
+-                   const uint8_t* guest_bytes, uint32_t guest_size) const;
++                   const uint8_t* guest_bytes, uint32_t guest_size,
++                   uint32_t guest_swizzle = 0x688 /* XYZW */) const;
++
++  // Replacement files hold the colours the game shows, not the guest's
++  // component order. When a fetch swizzle only reorders the colour components
++  // (its R, G and B read X, Y and Z in some order), sets channel_of[c] to the
++  // RGBA channel of the shown image that guest component c ends up in (W ->
++  // alpha) and returns true; otherwise (constants, a component used twice, W
++  // used as a colour) returns false and the swizzle is applied as it is.
++  static bool GetSwizzleColorOrder(uint32_t guest_swizzle, uint32_t channel_of[4]);
+ 
+   // ---------------------------------------------------------------------------
+   // Injection path
+@@ -141,12 +176,52 @@
+     prepare_callback_ = std::move(callback);
+   }
+ 
++  // Premultiplied alpha (texture_replace_alpha): whether the loading of this
++  // replacement would use its original texture - the check is on, the file
++  // isn't decoded yet and no original was given for it.
++  bool WantsGuestReference(uint64_t content_hash) const;
++  // The original for the next decoding of the replacement (kept until then).
++  void SetGuestReference(uint64_t content_hash,
++                         std::shared_ptr<const TextureReplacementGuest> guest) const;
++  // Guest formats the alpha check can read (with alpha worth comparing).
++  static bool CanDecodeGuestFormat(xenos::TextureFormat format);
++
+   // The smaller mips of an RGBA8 image down to 1x1: each texel is the average
+   // of 2x2 of the level above, weighted by alpha so the color of transparent
+   // texels doesn't bleed into the edges of cutouts.
+   static std::vector<std::vector<uint8_t>> BuildMips(const uint8_t* pixels, uint32_t width,
+                                                      uint32_t height);
+ 
++  // The biggest replacement side the texture cache takes (a texture key holds
++  // up to 8192). Bigger images are downscaled to fit (area-averaged, the
++  // shape kept).
++  static constexpr uint32_t kMaxReplacementSize = xenos::kTexture2DCubeMaxWidthHeight;
++  static void FitReplacementSize(uint32_t& width, uint32_t& height);
++
++  // Premultiplied alpha (texture_replace_alpha). The game blends its textures
++  // with straight alpha: a half-transparent texel holds its full colour. Some
++  // upscaling tools export premultiplied alpha instead (colour x alpha, black
++  // under transparent texels), which the game would darken a second time -
++  // soft edges, glows, clouds, decals and alpha-masked layers come out dark or
++  // black. Such images are converted to straight alpha when they're loaded.
++  //
++  // Each replacement is compared with the game's own texture it replaces
++  // (given with the lookup - SetGuestReference): premultiplied when its colour
++  // matches the original's colour x alpha, and then the original's colour
++  // fills its (nearly) transparent texels - see replacement_alpha.h. Without
++  // the original, its own texels and a survey of the pack decide:
++  //
++  // A premultiplied image's colour is never brighter than its alpha; in a
++  // straight one most half-transparent texels are. Counts of a sample of an
++  // image's texels:
++  struct AlphaStats {
++    uint64_t soft = 0;      // half-transparent (8 <= alpha <= 247)
++    uint64_t brighter = 0;  // of those, max(R, G, B) > alpha + 8
++    uint64_t sampled = 0;
++    bool transparent = false;  // any texel with alpha below 255
++  };
++  static AlphaStats GetAlphaStats(const uint8_t* pixels, uint32_t width, uint32_t height);
++
+   // ---------------------------------------------------------------------------
+   // Hash
+   // ---------------------------------------------------------------------------
+@@ -159,8 +234,53 @@
+   std::filesystem::path replace_dir() const { return textures_dir_ / "replace"; }
+ 
+  private:
+-  // Decodes a replacement file and makes its mips.
+-  static bool LoadFile(const std::filesystem::path& path, TextureReplacementData& out);
++  enum class LoadResult {
++    kLoaded,
++    kFailed,
++    // Its alpha has to be checked against its original, which wasn't given
++    // yet (the preload, before the game asked for the texture): not cached,
++    // loaded again when the game asks for it.
++    kDeferred,
++  };
++  // Decodes a replacement file and makes its mips (straight alpha, at most
++  // kMaxReplacementSize per side).
++  LoadResult LoadReplacement(uint64_t hash, const std::filesystem::path& path,
++                             TextureReplacementData& out, bool allow_defer) const;
++  // Decodes an image file as it is (RGBA8).
++  static bool DecodeFile(const std::filesystem::path& path, TextureReplacementData& out);
++  // Premultiplied alpha to straight (texture_replace_alpha): compared with its
++  // original when one was given (SetGuestReference), else decided by its own
++  // texels and the pack's survey. False = deferred (see LoadResult).
++  bool FixAlpha(uint64_t hash, const std::filesystem::path& path, TextureReplacementData& data,
++                bool allow_defer) const;
++  // The original's base level as RGBA8, in the colours the game shows.
++  static bool DecodeGuest(const TextureReplacementGuest& guest, std::vector<uint8_t>& rgba);
++
++  // Whether the pack's images have premultiplied alpha: texture_replace_alpha,
++  // or with "auto" a look at a sample of them on background threads (started
++  // with the first lookup), waited for by the loads.
++  bool IsPackPremultiplied() const;
++  void StartAlphaSurvey() const;  // alpha_mutex_ held
++  void StopAlphaSurvey();
++  void AlphaSurveyWorker() const;
++  // Decides from the votes and wakes the waiting loads (alpha_mutex_ held).
++  void FinishAlphaSurvey() const;
++  enum class PackAlpha { kUnknown, kStraight, kPremultiplied };
++  mutable std::mutex alpha_mutex_;
++  mutable std::condition_variable alpha_decided_;
++  mutable PackAlpha pack_alpha_ = PackAlpha::kUnknown;
++  mutable bool alpha_survey_started_ = false;
++  // The sample (files that can have alpha, small ones first), the next to
++  // look at, the votes, and the threads.
++  mutable std::vector<std::filesystem::path> alpha_survey_files_;
++  mutable std::atomic<size_t> alpha_survey_next_{0};
++  mutable std::atomic<uint32_t> alpha_survey_active_{0};
++  mutable std::atomic<uint32_t> alpha_votes_premultiplied_{0};
++  mutable std::atomic<uint32_t> alpha_votes_straight_{0};
++  mutable std::atomic<uint32_t> alpha_votes_looked_{0};
++  mutable std::atomic<bool> alpha_survey_stop_{false};
++  mutable std::chrono::steady_clock::time_point alpha_survey_start_time_;
++  mutable std::vector<std::unique_ptr<rex::thread::Thread>> alpha_survey_threads_;
+   // RAM an image file takes decoded (RGBA8 with its mips), from its header; 0
+   // if it can't be read.
+   static uint64_t DecodedSize(const std::filesystem::path& path);
+@@ -170,10 +290,11 @@
+   static uint64_t CachedSize(const TextureReplacementData& data);
+   // Adds a decoded texture to pixel_cache_ (cache_mutex_ held).
+   TextureReplacementData* AddToPixelCache(uint64_t hash, TextureReplacementData&& data) const;
+-  // Drops the least recently used decoded textures, other than `keep`, while
+-  // pixel_cache_ is over texture_replace_ram_mb (cache_mutex_ held). Only
+-  // FindReplacement calls it: the pointers it returned before are used before
+-  // it's called again.
++  // Drops decoded textures, other than `keep`, while pixel_cache_ is over
++  // texture_replace_ram_mb (cache_mutex_ held): the ones already handed out
++  // first, least recently used first. Only on the thread asking for textures
++  // (FindReplacement, RequestAsync): the pointers FindReplacement returned
++  // before are used before it's called again.
+   void TrimPixelCache(uint64_t keep) const;
+   // Decodes the indexed files on background threads.
+   void StartPreload() const;
+@@ -199,10 +320,24 @@
+   struct PixelCacheUse {
+     uint64_t bytes = 0;
+     uint64_t last_use = 0;
++    // FindReplacement has handed it out (it's been uploaded): dropped before
++    // the ones decoded in the background and not used yet.
++    bool used = false;
+   };
+   mutable std::unordered_map<uint64_t, PixelCacheUse> pixel_cache_use_;
+   mutable uint64_t pixel_cache_bytes_ = 0;
+   mutable uint64_t pixel_cache_clock_ = 0;
++  // TrimPixelCache's log, at most every few seconds.
++  mutable std::chrono::steady_clock::time_point trim_log_time_{};
++  mutable size_t trim_log_dropped_ = 0;
++  // The originals given for replacements not decoded yet (SetGuestReference).
++  mutable std::unordered_map<uint64_t, std::shared_ptr<const TextureReplacementGuest>> guest_refs_;
++  // Textures compared with their originals: premultiplied / straight (for the
++  // log), and how many were converted.
++  mutable std::atomic<uint32_t> premultiplied_votes_{0};
++  mutable std::atomic<uint32_t> straight_votes_{0};
++  mutable std::atomic<uint32_t> alpha_fixed_count_{0};
++  mutable std::atomic<bool> pack_verdict_logged_{false};
+   // texture_replace_ram_mb in bytes, or the whole preloaded pack if that's
+   // bigger (it fit the budget when the preload started).
+   mutable uint64_t pixel_cache_budget_ = 0;
+@@ -245,6 +380,10 @@
+   static bool ReadDDS(const std::filesystem::path& path, TextureReplacementData& out);
+ 
+   static bool ReadPNG(const std::filesystem::path& path, TextureReplacementData& out);
++
++  // Halves an RGBA8 image (2x2 texels each, colour weighted by alpha).
++  static void Downsample2x(const uint8_t* source, uint32_t source_width, uint32_t source_height,
++                           uint8_t* dest, uint32_t dest_width, uint32_t dest_height);
+ };
+ 
+ }  // namespace rex::graphics
+diff --git a/include/rex/input/sdl/sdl_input_driver.h b/include/rex/input/sdl/sdl_input_driver.h
+--- a/include/rex/input/sdl/sdl_input_driver.h
++++ b/include/rex/input/sdl/sdl_input_driver.h
+@@ -77,6 +77,8 @@
+   void HandleEvent(const SDL_Event& event);
+   std::unique_lock<std::mutex> DrainAndLock();
+   void ProcessEventLocked(const SDL_Event& event);
++  // A joystick SDL can't map gets a generic gamepad mapping (hid_generic_mapping).
++  bool AddGenericMapping(SDL_JoystickID id, const char* name, const char* guid);
+   void OnJoystickDeviceAddedLocked(const SDL_Event& event);
+   void OnControllerDeviceAddedLocked(const SDL_Event& event);
+   void OnControllerDeviceRemovedLocked(const SDL_Event& event);
+diff --git a/include/rex/perf/frame_rate.h b/include/rex/perf/frame_rate.h
+--- a/include/rex/perf/frame_rate.h
++++ b/include/rex/perf/frame_rate.h
+@@ -39,6 +39,19 @@
+ };
+ FrameCostTotals GetFrameCostTotals();
+ 
++// Input latency probe (debug cvar latency_log): "[Latency] <event>" log lines
++// with the steady clock in milliseconds (QPC milliseconds on Windows, the
++// clock PresentMon --qpc_time_ms uses), for a press's way to the screen.
++// Lines are written for 400 ms after a new button press the guest read
++// (LatencyOpenWindow), so a whole session doesn't flood the log.
++bool IsLatencyLogging();
++void LatencyOpenWindow();
++bool IsLatencyWindowOpen();
++void LatencyLog(const char* event, uint64_t a = 0, uint64_t b = 0);
++// Guest VdSwap calls (the guest thread's end of a frame), for the probe.
++uint64_t RecordGuestVdSwap();
++uint64_t GetGuestVdSwapCount();
++
+ // Guest frontbuffer size (before resolution scaling) of the latest swap.
+ void RecordGuestFrontbuffer(uint32_t width, uint32_t height);
+ 
+@@ -139,6 +152,7 @@
+   kSwap,           // gamma ramp / FXAA of the frontbuffer
+   kPresenterGuest, // presenter: guest output effects (CAS, FSR, bilinear)
+   kPresenterUi,    // presenter: overlays and UI
++  kDrawFocus,      // the game's draws with a pixel shader in gpu_profile_focus_ps
+   kCount,
+ };
+ const char* GetGpuPassName(GpuPass pass);
+@@ -174,6 +188,34 @@
+   std::atomic<uint64_t> present_cpu_ns{0};
+ };
+ GpuProfileStats& GetGpuProfileStats();
++// What the command processor (GPU) thread is doing, for the gpu_state debug
++// command (finding where a stall is: waiting for the game, for the GPU, or
++// stuck in between). Written by the GPU thread, read by anyone.
++enum class GpuThreadWhere : uint32_t {
++  kStarting,
++  kIdle,          // waiting for the game to submit commands
++  kExecuting,     // executing commands
++  kWaitRegMem,    // PM4 WAIT_REG_MEM: waiting for a memory / register value
++  kFenceWait,     // waiting for a GPU submission to complete
++  kQueueOpsWait,  // waiting for out-of-submission queue operations
++  kCount,
++};
++struct GpuThreadState {
++  std::atomic<uint32_t> where{0};
++  std::atomic<uint64_t> where_since_ms{0};  // host uptime when `where` last changed
++  std::atomic<uint64_t> primary_buffers{0}; // ExecutePrimaryBuffer calls
++  std::atomic<uint32_t> read_ptr{0};
++  std::atomic<uint32_t> write_ptr{0};
++  std::atomic<uint32_t> wait_reg_mem_address{0};  // dword address (register or memory)
++  std::atomic<uint32_t> wait_reg_mem_ref{0};
++  std::atomic<uint32_t> wait_reg_mem_value{0};
++  std::atomic<uint32_t> wait_reg_mem_flags{0};
++  std::atomic<uint64_t> fence_await{0};
++  std::atomic<uint64_t> fence_completed{0};
++};
++GpuThreadState& GetGpuThreadState();
++void SetGpuThreadWhere(GpuThreadWhere where);
++const char* GetGpuThreadWhereName(uint32_t where);
+ inline bool IsGpuProfiling() {
+   return GetGpuProfileStats().enabled.load(std::memory_order_relaxed);
+ }
+diff --git a/include/rex/system/xam/user_profile.h b/include/rex/system/xam/user_profile.h
+--- a/include/rex/system/xam/user_profile.h
++++ b/include/rex/system/xam/user_profile.h
+@@ -11,6 +11,8 @@
+ 
+ #pragma once
+ 
++#include <atomic>
++
+ #include <memory>
+ #include <string>
+ #include <unordered_map>
+@@ -221,6 +223,14 @@
+   uint32_t signin_state() const { return 1; }
+   uint32_t type() const { return 1 | 2; /* local | online profile? */ }
+ 
++  // The guest user index (0-3) the one profile is signed in on; every other
++  // index reports no user. 0 until the title moves it (e.g. to the controller
++  // that pressed Start, when another device holds user 0), so the player is
++  // signed in to Xbox LIVE whichever pad they play with.
++  uint32_t signed_in_user() const { return signed_in_user_.load(std::memory_order_relaxed); }
++  bool IsSignedIn(uint32_t user_index) const { return user_index == signed_in_user(); }
++  void set_signed_in_user(uint32_t user_index);
++
+   void set_kernel_state(KernelState* ks) { kernel_state_ = ks; }
+ 
+   void AddSetting(std::unique_ptr<Setting> setting);
+@@ -229,6 +239,7 @@
+  private:
+   uint64_t xuid_;
+   std::string name_;
++  std::atomic<uint32_t> signed_in_user_{0};
+   std::vector<std::unique_ptr<Setting>> setting_list_;
+   std::unordered_map<uint32_t, Setting*> settings_;
+   KernelState* kernel_state_ = nullptr;
+diff --git a/include/rex/ui/presenter.h b/include/rex/ui/presenter.h
+--- a/include/rex/ui/presenter.h
++++ b/include/rex/ui/presenter.h
+@@ -1056,6 +1056,8 @@
+   // The shutdown flag is modifiable only from the UI thread.
+   bool dxgi_ui_tick_thread_shutdown_ = false;
+   bool dxgi_ui_tick_force_requested_ = false;
++  // WaitForUITickFromUIThread gave up waiting for a vblank (logged once).
++  bool ui_tick_timeout_logged_ = false;
+ 
+   std::condition_variable dxgi_ui_tick_control_condition_;
+   // May be signaled by guest output refreshing.
+diff --git a/src/core/perf/frame_rate.cpp b/src/core/perf/frame_rate.cpp
+--- a/src/core/perf/frame_rate.cpp
++++ b/src/core/perf/frame_rate.cpp
+@@ -14,6 +14,15 @@
+ #include <mutex>
+ #include <string>
+ 
++#include <rex/cvar.h>
++#include <rex/logging.h>
++
++REXCVAR_DEFINE_BOOL(latency_log, false, "Perf",
++                    "Debug: log each new controller press's way to the screen as [Latency] "
++                    "lines (guest read, guest vblanks and swaps, GPU swap, present) with QPC "
++                    "milliseconds, for 400 ms after the press.")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::perf {
+ 
+ namespace {
+@@ -29,8 +38,54 @@
+ std::atomic<uint32_t> g_requested_scale_x{0};
+ std::atomic<uint32_t> g_requested_scale_y{0};
+ std::atomic<uint32_t> g_percent{100};
++std::atomic<int64_t> g_latency_window_until_ns{0};
++std::atomic<uint64_t> g_guest_vdswap_count{0};
++
++int64_t SteadyNowNs() {
++  return std::chrono::duration_cast<std::chrono::nanoseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
+ }  // namespace
+ 
++bool IsLatencyLogging() {
++  return REXCVAR_GET(latency_log);
++}
++
++void LatencyOpenWindow() {
++  if (!REXCVAR_GET(latency_log)) {
++    return;
++  }
++  g_latency_window_until_ns.store(SteadyNowNs() + 400'000'000, std::memory_order_relaxed);
++}
++
++bool IsLatencyWindowOpen() {
++  return REXCVAR_GET(latency_log) &&
++         SteadyNowNs() < g_latency_window_until_ns.load(std::memory_order_relaxed);
++}
++
++// Dragon Burst: present= is the frames shown (PresentStats; the PC's host present times are not in this SDK).
++void LatencyLog(const char* event, uint64_t a, uint64_t b) {
++  const int64_t now = SteadyNowNs();
++  if (!REXCVAR_GET(latency_log) || now >= g_latency_window_until_ns.load(std::memory_order_relaxed)) {
++    return;
++  }
++  REXLOG_INFO("[Latency] {} {} {} t={:.3f} vdswap={} xeswap={} present={}", event, a, b,
++              double(now) * 1.0e-6, g_guest_vdswap_count.load(std::memory_order_relaxed),
++              g_guest_swap_count.load(std::memory_order_relaxed),
++              GetPresentStats().shown.load(std::memory_order_relaxed));
++}
++
++uint64_t RecordGuestVdSwap() {
++  const uint64_t index = g_guest_vdswap_count.fetch_add(1, std::memory_order_relaxed) + 1;
++  LatencyLog("vdswap");
++  return index;
++}
++
++uint64_t GetGuestVdSwapCount() {
++  return g_guest_vdswap_count.load(std::memory_order_relaxed);
++}
++
+ void RecordGuestSwap() {
+   const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+@@ -39,6 +94,7 @@
+   const uint64_t index = g_guest_swap_count.load(std::memory_order_relaxed);
+   g_swap_times_ns[index % kSwapTimeHistory].store(now, std::memory_order_relaxed);
+   g_guest_swap_count.store(index + 1, std::memory_order_release);
++  LatencyLog("xeswap");
+ }
+ 
+ uint64_t GetGuestSwapCount() {
+@@ -189,6 +245,8 @@
+       return "present_effects";
+     case GpuPass::kPresenterUi:
+       return "present_ui";
++    case GpuPass::kDrawFocus:
++      return "draws_focus";
+     default:
+       return "?";
+   }
+@@ -214,4 +272,39 @@
+   return g_upscaler_override;
+ }
+ 
++GpuThreadState& GetGpuThreadState() {
++  static GpuThreadState state;
++  return state;
++}
++
++void SetGpuThreadWhere(GpuThreadWhere where) {
++  GpuThreadState& state = GetGpuThreadState();
++  if (state.where.exchange(uint32_t(where), std::memory_order_relaxed) != uint32_t(where)) {
++    state.where_since_ms.store(
++        uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                     std::chrono::steady_clock::now().time_since_epoch())
++                     .count()),
++        std::memory_order_relaxed);
++  }
++}
++
++const char* GetGpuThreadWhereName(uint32_t where) {
++  switch (GpuThreadWhere(where)) {
++    case GpuThreadWhere::kStarting:
++      return "starting";
++    case GpuThreadWhere::kIdle:
++      return "idle (waiting for the game's commands)";
++    case GpuThreadWhere::kExecuting:
++      return "executing";
++    case GpuThreadWhere::kWaitRegMem:
++      return "WAIT_REG_MEM";
++    case GpuThreadWhere::kFenceWait:
++      return "waiting for a GPU submission";
++    case GpuThreadWhere::kQueueOpsWait:
++      return "waiting for GPU queue operations";
++    default:
++      return "?";
++  }
++}
++
+ }  // namespace rex::perf
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -258,6 +258,12 @@
+     }
+     if (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index) {
+       SCOPE_profile_cpu_i("gpu", "rex::graphics::CommandProcessor::Stall");
++      {
++        rex::perf::GpuThreadState& thread_state = rex::perf::GetGpuThreadState();
++        thread_state.read_ptr.store(read_ptr_index_, std::memory_order_relaxed);
++        thread_state.write_ptr.store(write_ptr_index, std::memory_order_relaxed);
++        rex::perf::SetGpuThreadWhere(rex::perf::GpuThreadWhere::kIdle);
++      }
+       // We've run out of commands to execute.
+       // We spin here waiting for new ones, as the overhead of waiting on our
+       // event is too high.
+@@ -289,6 +295,13 @@
+     assert_true(read_ptr_index_ != write_ptr_index);
+ 
+     // Execute. Note that we handle wraparound transparently.
++    {
++      rex::perf::GpuThreadState& thread_state = rex::perf::GetGpuThreadState();
++      thread_state.read_ptr.store(read_ptr_index_, std::memory_order_relaxed);
++      thread_state.write_ptr.store(write_ptr_index, std::memory_order_relaxed);
++      thread_state.primary_buffers.fetch_add(1, std::memory_order_relaxed);
++      rex::perf::SetGpuThreadWhere(rex::perf::GpuThreadWhere::kExecuting);
++    }
+     read_ptr_index_ = ExecutePrimaryBuffer(read_ptr_index_, write_ptr_index);
+ 
+     // ExecutePrimaryBuffer republishes this every read_ptr_update_freq_ dwords
+@@ -1289,6 +1302,7 @@
+   bool is_memory = (wait_info & 0x10) != 0;
+ 
+   bool matched = false;
++  bool waited = false;
+   // Sleep before the next re-check with wait_reg_mem_backoff.
+   uint64_t backoff_us = 50;
+   do {
+@@ -1346,6 +1360,18 @@
+       continue;
+     }
+     if (!matched) {
++      if (!waited && rex::perf::IsLatencyWindowOpen()) {
++        rex::perf::LatencyLog("cpwait_begin", poll_reg_addr, ref);
++      }
++      waited = true;
++      {
++        rex::perf::GpuThreadState& thread_state = rex::perf::GetGpuThreadState();
++        thread_state.wait_reg_mem_address.store(poll_reg_addr, std::memory_order_relaxed);
++        thread_state.wait_reg_mem_ref.store(ref, std::memory_order_relaxed);
++        thread_state.wait_reg_mem_value.store(value, std::memory_order_relaxed);
++        thread_state.wait_reg_mem_flags.store(wait_info, std::memory_order_relaxed);
++        rex::perf::SetGpuThreadWhere(rex::perf::GpuThreadWhere::kWaitRegMem);
++      }
+       // Wait.
+       if (wait >= 0x100) {
+         // Dragon Burst (0189): fora da tela o que se espera (o vblank, o jogo) nao chega; espera a volta.
+@@ -1389,6 +1415,10 @@
+       }
+     }
+   } while (!matched);
++  if (waited) {
++    rex::perf::LatencyLog("cpwait_end", poll_reg_addr, ref);
++  }
++  rex::perf::SetGpuThreadWhere(rex::perf::GpuThreadWhere::kExecuting);
+ 
+   return true;
+ }
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -27,6 +27,7 @@
+ #include <rex/graphics/command_processor.h>
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/frame_pacing.h>
++#include <rex/perf/frame_rate.h>
+ #include <rex/kernel/xboxkrnl/video.h>
+ #include <rex/logging.h>
+ #include <rex/stream.h>
+@@ -244,6 +245,16 @@
+           } else {
+             interval_ticks = REXCVAR_GET(vsync) ? vsync_interval_ticks : no_vsync_interval_ticks;
+           }
++          // The guest clock can read a tick lower than before (a re-based
++          // snapshot): unsigned, current - last would wrap to ~1.8e19 and this
++          // loop would fire vblanks forever (an interrupt storm, FPS < 10).
++          if (current_time < last_frame_time) {
++            last_frame_time = current_time;
++          }
++          // After a long stall, catch up a few vblanks, not the whole backlog.
++          if (current_time - last_frame_time > 8 * interval_ticks) {
++            last_frame_time = current_time - 8 * interval_ticks;
++          }
+           while (current_time - last_frame_time >= interval_ticks) {
+             MarkVblank();
+             last_frame_time += interval_ticks;
+@@ -254,8 +265,18 @@
+             // spaced (144 Hz is under 7 ms).
+             current_time = chrono::Clock::QueryGuestTickCount();
+             const uint64_t next_vblank = last_frame_time + interval_ticks;
+-            if (next_vblank > current_time &&
+-                next_vblank - current_time > guest_tick_frequency / 500) {
++            const uint64_t remaining = next_vblank > current_time ? next_vblank - current_time : 0;
++#if !REX_PLATFORM_WIN32
++            // Dragon Burst (from the PC's 9dbb755, which uses a high resolution waitable timer): nanosleep is
++            // microsecond-precise here, so sleep to 0.2 ms before the vblank and yield only that (it yield-spun
++            // the last 2 ms, ~12% of a core at 60 Hz).
++            if (remaining > guest_tick_frequency / 2500) {
++              rex::thread::Sleep(std::chrono::microseconds(
++                  (remaining - guest_tick_frequency / 5000) * 1000000 / guest_tick_frequency));
++              continue;
++            }
++#endif  // !REX_PLATFORM_WIN32
++            if (remaining > guest_tick_frequency / 500) {
+               rex::thread::Sleep(std::chrono::milliseconds(1));
+             } else {
+               rex::thread::MaybeYield();
+@@ -426,6 +447,7 @@
+   // TODO: Enable profiling once ported
+   // SCOPE_profile_cpu_f("gpu");
+ 
++  rex::perf::LatencyLog("vblank");
+   // Increment vblank counter (so the game sees us making progress).
+   if (command_processor_) {
+     command_processor_->increment_counter();
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -16,6 +16,7 @@
+ #include <cstdint>
+ #include <cstring>
+ #include <string>
++#include <unordered_set>
+ #include <utility>
+ #include <vector>
+ 
+@@ -149,6 +150,16 @@
+     .range(256, 65536)
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_STRING(texture_replace_alpha, "auto", "GPU/Texture Replacement",
++                      "How the pack's images store transparency: auto (each image compared with "
++                      "the game's own texture it replaces - or, without one, a sample of the "
++                      "pack decides), straight (colour not multiplied by alpha, like the game's own "
++                      "textures) or premultiplied (colour multiplied by alpha, as some upscaling "
++                      "tools export it - converted to straight alpha when loaded; drawn as it is, "
++                      "soft edges, glows, clouds and decals come out dark)")
++    .allowed({"auto", "straight", "premultiplied"})
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ REXCVAR_DEFINE_STRING(texture_folder, "", "GPU/Texture Replacement",
+                       "Texture dump folder (empty = <executable folder>/textures)")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+@@ -753,6 +764,25 @@
+   return host_swizzle;
+ }
+ 
++uint32_t TextureCache::ReplacementHostSwizzle(uint32_t guest_swizzle,
++                                              uint32_t host_format_swizzle) {
++  // Only formats whose host texture keeps the guest components in place
++  // (RGBA-like: 8_8_8_8, DXT1-5, ...); single- and two-channel formats
++  // replicate components and keep the plain mapping.
++  uint32_t channel_of[4];
++  if (host_format_swizzle != xenos::XE_GPU_TEXTURE_SWIZZLE_RGBA ||
++      !TextureReplacement::GetSwizzleColorOrder(guest_swizzle, channel_of)) {
++    return GuestToHostSwizzle(guest_swizzle, host_format_swizzle);
++  }
++  uint32_t host_swizzle = 0;
++  for (uint32_t i = 0; i < 4; ++i) {
++    const uint32_t c = (guest_swizzle >> (3 * i)) & 0b111;
++    const uint32_t host_c = c >= xenos::XE_GPU_TEXTURE_SWIZZLE_0 ? (c & 0b101) : channel_of[c];
++    host_swizzle |= host_c << (3 * i);
++  }
++  return host_swizzle;
++}
++
+ bool TextureCache::PrepareTextureLoad(Texture& texture, PendingTextureLoad& pending_load_out,
+                                       PendingSharedMemoryRange* pending_ranges_out,
+                                       size_t& pending_range_count_out) {
+@@ -870,7 +900,8 @@
+                               texture_key.tiled != 0, guest_bytes, guest_size);
+       replacement_->DumpTexture(content_hash, texture_key.GetWidth(), texture_key.GetHeight(),
+                                 texture_key.pitch, texture_key.tiled != 0, texture_key.format,
+-                                texture_key.endianness, guest_bytes, guest_size);
++                                texture_key.endianness, guest_bytes, guest_size,
++                                texture.last_guest_swizzle_);
+     }
+   }
+ 
+@@ -956,6 +987,9 @@
+     uint8_t old_swizzled_signs = binding.swizzled_signs;
+     BindingInfoFromFetchConstant(fetch, binding.key, &binding.swizzled_signs);
+     texture_bindings_in_sync_ |= index_bit;
++    // For FindOrCreateTexture below (a replacement's original is compared in
++    // the colours this binding shows).
++    replacement_lookup_swizzle_ = fetch.swizzle;
+     if (!binding.key.is_valid) {
+       // An invalid fetch constant still has a destination swizzle: its
+       // constant components read as 0 or 1, the rest as the null texture's 0.
+@@ -970,6 +1004,10 @@
+     }
+     uint32_t old_host_swizzle = binding.host_swizzle;
+     binding.host_swizzle = GuestToHostSwizzle(fetch.swizzle, GetHostFormatSwizzle(binding.key));
++    if (binding.key == old_key && binding.texture && binding.texture->replacement_content_hash_) {
++      binding.host_swizzle =
++          ReplacementHostSwizzle(fetch.swizzle, GetHostFormatSwizzle(binding.key));
++    }
+ 
+     // Check if need to load the unsigned and the signed versions of the texture
+     // (if the format is emulated with different host bit representations for
+@@ -1019,6 +1057,31 @@
+       }
+       binding.texture_signed = nullptr;
+     }
++    // A replacement image holds the colours the game shows: guest data
++    // stored in another component order (ARGB read with ZYXW) must not be
++    // reordered once more.
++    if (binding.texture && binding.texture->replacement_content_hash_) {
++      const uint32_t replacement_swizzle =
++          ReplacementHostSwizzle(fetch.swizzle, GetHostFormatSwizzle(binding.key));
++      if (replacement_swizzle != binding.host_swizzle) {
++        // Once per replacement (bindings are looked up again every frame).
++        static std::unordered_set<uint64_t> logged;
++        if (logged.size() < 256 && logged.insert(binding.texture->replacement_content_hash_).second) {
++          REXLOG_INFO(
++              "TextureReplacement: {:016x} (guest format {}, fetch swizzle {:03o}) shown in "
++              "the replacement's own colour order",
++              binding.texture->replacement_content_hash_, uint32_t(binding.key.format),
++              uint32_t(fetch.swizzle));
++        }
++        binding.host_swizzle = replacement_swizzle;
++        if (replacement_swizzle != old_host_swizzle) {
++          bindings_changed |= index_bit;
++        }
++      }
++    }
++    if (binding.texture) {
++      binding.texture->last_guest_swizzle_ = fetch.swizzle;
++    }
+     if (load_unsigned_data) {
+       queue_pending_texture_load(binding.texture);
+     }
+@@ -1027,6 +1090,8 @@
+     }
+   }
+ 
++  replacement_lookup_swizzle_ = 0x688;  // XYZW
++
+   COUNT_profile_set("gpu/texture_cache/request_textures_pending_load_count",
+                     uint32_t(pending_texture_loads.size()));
+   COUNT_profile_set("gpu/texture_cache/request_textures_pending_range_count",
+@@ -1462,11 +1527,21 @@
+       uint32_t replacement_width = 0, replacement_height = 0;
+       if (replacement_->FindReplacementSize(replacement_content_hash, replacement_width,
+                                             replacement_height)) {
+-        // The key holds up to 8192 per side.
++        // The key holds up to 8192 per side (bigger images are given at that
++        // size already - TextureReplacement::FitReplacementSize).
+         const uint32_t max_size = std::min(GetMaxHostTextureWidthHeight(key.dimension),
+                                            xenos::kTexture2DCubeMaxWidthHeight);
+ 
+-        if (replacement_width <= max_size && replacement_height <= max_size) {
++        if (replacement_width > max_size || replacement_height > max_size) {
++          static std::unordered_set<uint64_t> logged_too_big;
++          if (logged_too_big.size() < 256 &&
++              logged_too_big.insert(replacement_content_hash).second) {
++            REXLOG_WARN(
++                "TextureReplacement: {:016x} is {}x{}, more than this GPU's textures can be "
++                "({} per side) - the original texture is shown",
++                replacement_content_hash, replacement_width, replacement_height, max_size);
++          }
++        } else {
+           const uint32_t original_width = key.GetWidth();
+           const uint32_t original_height = key.GetHeight();
+ 
+@@ -1474,14 +1549,42 @@
+           replacement_key.width_minus_1 = replacement_width - 1;
+           replacement_key.height_minus_1 = replacement_height - 1;
+           replacement_key.format = xenos::TextureFormat::k_8_8_8_8;
+-          // A full mip chain (made when the replacement is loaded), so it
+-          // doesn't shimmer when it's far away - the guest's sampler state
+-          // still picks which levels are used.
++          // Mips (made when the replacement is loaded) down to the game's own
++          // last level at the replacement's scale - level log2(scale) is the
++          // original's base: a texture the game made without mips keeps the
++          // original's detail at a distance (not blurred below it) and isn't
++          // sampled finer than the original either (no extra shimmer); one
++          // with a full chain gets a full chain.
++          const float scale = std::max(float(replacement_width) / float(original_width),
++                                       float(replacement_height) / float(original_height));
++          const uint32_t scale_log2 =
++              scale > 1.0f ? uint32_t(std::floor(std::log2(scale) + 0.01f)) : 0;
+           replacement_key.mip_max_level =
+-              std::min(rex::log2_floor(std::max(replacement_width, replacement_height)),
+-                       uint32_t(xenos::kTextureMaxMips - 1));
++              std::min({rex::log2_floor(std::max(replacement_width, replacement_height)),
++                        uint32_t(xenos::kTextureMaxMips - 1),
++                        uint32_t(key.mip_max_level) + scale_log2});
+           replacement_key.replacement_id = uint32_t(replacement_content_hash & 0xFFFFFFF) | 1;
+ 
++          // Premultiplied alpha (texture_replace_alpha): the original's data
++          // for the loading thread to compare the replacement with, while the
++          // guest memory holds it.
++          if (textures_.find(replacement_key) == textures_.end() &&
++              key.dimension == xenos::DataDimension::k2DOrStacked &&
++              original_guest_layout.array_size == 1 && original_guest_layout.packed_level != 0 &&
++              TextureReplacement::CanDecodeGuestFormat(key.format) &&
++              replacement_->WantsGuestReference(replacement_content_hash)) {
++            auto guest = std::make_shared<TextureReplacementGuest>();
++            guest->bytes.assign(guest_bytes, guest_bytes + guest_size);
++            guest->width = original_width;
++            guest->height = original_height;
++            guest->row_pitch_bytes = original_guest_layout.base.row_pitch_bytes;
++            guest->tiled = key.tiled != 0;
++            guest->format = key.format;
++            guest->endianness = key.endianness;
++            guest->swizzle = replacement_lookup_swizzle_;
++            replacement_->SetGuestReference(replacement_content_hash, std::move(guest));
++          }
++
+           // Not decoded yet: the original texture this time, the replacement
+           // decoded in the background (its ready callback has the bindings
+           // looked up again). A replacement texture already made is used.
+diff --git a/src/graphics/pipeline/texture/replacement.cpp b/src/graphics/pipeline/texture/replacement.cpp
+--- a/src/graphics/pipeline/texture/replacement.cpp
++++ b/src/graphics/pipeline/texture/replacement.cpp
+@@ -16,10 +16,14 @@
+ #include <rex/graphics/draw_overrides.h>
+ #include <rex/graphics/pipeline/texture/conversion.h>
+ #include <rex/graphics/pipeline/texture/info.h>
++#include <rex/graphics/pipeline/texture/util.h>
+ #include <rex/logging.h>
++#include <rex/math.h>
+ #include <rex/perf/frame_rate.h>
+ #include <rex/thread.h>
+ 
++#include "replacement_alpha.h"
++
+ #ifndef XXH_INLINE_ALL
+ #define XXH_INLINE_ALL
+ #endif
+@@ -317,27 +321,8 @@
+   }
+ }
+ 
+-// Runs body(begin, end) over the rows [0, count), split across a few threads
+-// when the image is big (a 4096x4096 replacement decodes and mips about 8x
+-// faster on 8 threads, which is what the frame waits for).
+-template <typename Body>
+-static void ParallelRows(uint32_t count, uint64_t pixels, Body&& body) {
+-  const uint32_t threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u);
+-  if (threads <= 1 || pixels < uint64_t(512) * 512 || count < threads * 4) {
+-    body(0u, count);
+-    return;
+-  }
+-  const uint32_t step = (count + threads - 1) / threads;
+-  std::vector<std::thread> workers;
+-  for (uint32_t begin = step; begin < count; begin += step) {
+-    const uint32_t end = std::min(count, begin + step);
+-    workers.emplace_back([&body, begin, end] { body(begin, end); });
+-  }
+-  body(0u, std::min(count, step));
+-  for (std::thread& worker : workers) {
+-    worker.join();
+-  }
+-}
++// (replacement_alpha.h)
++using replacement_image::ParallelRows;
+ 
+ enum class DdsDecodeFormat {
+   kRGBA8,
+@@ -943,13 +928,19 @@
+ }
+ 
+ TextureReplacement::~TextureReplacement() {
++  // The survey first: loads waiting for its answer get it (and once more at
++  // the end, for one a stopping load may have started).
++  StopAlphaSurvey();
+   StopAsync();
+   StopPreload();
++  StopAlphaSurvey();
+ }
+ 
+ void TextureReplacement::Rescan() {
++  StopAlphaSurvey();
+   StopAsync();
+   StopPreload();
++  StopAlphaSurvey();
+   std::lock_guard<std::mutex> lock(cache_mutex_);
+   replacements_.clear();
+   pixel_cache_.clear();
+@@ -957,6 +948,19 @@
+   pixel_cache_bytes_ = 0;
+   failed_cache_.clear();
+   size_cache_.clear();
++  guest_refs_.clear();
++  premultiplied_votes_ = 0;
++  straight_votes_ = 0;
++  pack_verdict_logged_ = false;
++  // Files for the premultiplied-alpha survey: up to 8 MB (quick to decode),
++  // in the order of their keys (as good as random).
++  std::vector<std::pair<uint64_t, std::filesystem::path>> survey_files;
++  {
++    std::lock_guard<std::mutex> alpha_lock(alpha_mutex_);
++    pack_alpha_ = PackAlpha::kUnknown;
++    alpha_survey_started_ = false;
++    alpha_survey_files_.clear();
++  }
+ 
+   std::error_code ec;
+   if (!std::filesystem::exists(replace_dir(), ec))
+@@ -997,6 +1001,23 @@
+       continue;
+ 
+     replacements_[hash] = p;
++    std::error_code size_ec;
++    const uintmax_t file_size = entry.file_size(size_ec);
++    if (!size_ec && file_size <= (uintmax_t(8) << 20)) {
++      survey_files.emplace_back(hash, p);
++    }
++  }
++
++  std::sort(survey_files.begin(), survey_files.end());
++  {
++    std::lock_guard<std::mutex> alpha_lock(alpha_mutex_);
++    for (auto& [hash, path] : survey_files) {
++      // (A later file with the same key replaced this one in the index.)
++      auto it = replacements_.find(hash);
++      if (it != replacements_.end() && it->second == path) {
++        alpha_survey_files_.push_back(std::move(path));
++      }
++    }
+   }
+ 
+   REXLOG_INFO("TextureReplacement: {} replacement(s) indexed from {}", replacements_.size(),
+@@ -1034,10 +1055,24 @@
+ // ---------------------------------------------------------------------------
+ // DumpTexture — untile + endian-swap + write DDS
+ // ---------------------------------------------------------------------------
++bool TextureReplacement::GetSwizzleColorOrder(uint32_t guest_swizzle, uint32_t channel_of[4]) {
++  uint32_t seen = 0;
++  for (uint32_t i = 0; i < 3; ++i) {
++    const uint32_t c = (guest_swizzle >> (3 * i)) & 0b111;
++    if (c > 2 || (seen & (1u << c))) {
++      return false;
++    }
++    seen |= 1u << c;
++    channel_of[c] = i;
++  }
++  channel_of[3] = 3;
++  return true;
++}
++
+ void TextureReplacement::DumpTexture(uint64_t content_hash, uint32_t width, uint32_t height,
+                                      uint32_t pitch_blocks, bool tiled, xenos::TextureFormat format,
+                                      xenos::Endian endianness, const uint8_t* guest_bytes,
+-                                     uint32_t guest_size) const {
++                                     uint32_t guest_size, uint32_t guest_swizzle) const {
+   using F = xenos::TextureFormat;
+ 
+   const FormatInfo* fi = FormatInfo::Get(format);
+@@ -1144,6 +1179,24 @@
+       }
+     }
+ 
++    // Write the colours the game shows (replacement files are read that
++    // way): e.g. ARGB textures read with a ZYXW swizzle come out blue in the
++    // guest component order. Only for formats with red, green and blue.
++    uint32_t channel_of[4];
++    const bool rgb_format = format == F::k_8_8_8_8 || format == F::k_8_8_8_8_A ||
++                            format == F::k_8_8_8_8_GAMMA_EDRAM || format == F::k_2_10_10_10 ||
++                            format == F::k_1_5_5_5 || format == F::k_5_6_5 ||
++                            format == F::k_4_4_4_4;
++    if (rgb_format && GetSwizzleColorOrder(guest_swizzle, channel_of) &&
++        (channel_of[0] != 0 || channel_of[1] != 1 || channel_of[2] != 2)) {
++      for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
++        uint8_t texel[4] = {rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]};
++        for (uint32_t c = 0; c < 4; ++c) {
++          rgba[i + channel_of[c]] = texel[c];
++        }
++      }
++    }
++
+     if (!WriteDDS_RGBA8(dest, width, height, rgba.data(), out_row_bytes)) {
+       REXLOG_WARN("TextureReplacement: failed to write RGBA8 dump {}", dest.string());
+     } else {
+@@ -1189,21 +1242,15 @@
+ // ---------------------------------------------------------------------------
+ // Loading
+ // ---------------------------------------------------------------------------
+-std::vector<std::vector<uint8_t>> TextureReplacement::BuildMips(const uint8_t* pixels,
+-                                                                uint32_t width, uint32_t height) {
+-  std::vector<std::vector<uint8_t>> mips;
+-  const uint8_t* source = pixels;
+-  uint32_t source_width = width, source_height = height;
+-  while (source_width > 1 || source_height > 1) {
+-    const uint32_t mip_width = std::max(source_width >> 1, uint32_t(1));
+-    const uint32_t mip_height = std::max(source_height >> 1, uint32_t(1));
+-    std::vector<uint8_t>& mip = mips.emplace_back(size_t(mip_width) * mip_height * 4);
+-    ParallelRows(mip_height, uint64_t(source_width) * source_height,
+-                 [&](uint32_t y_begin, uint32_t y_end) {
++void TextureReplacement::Downsample2x(const uint8_t* source, uint32_t source_width,
++                                      uint32_t source_height, uint8_t* dest, uint32_t dest_width,
++                                      uint32_t dest_height) {
++  ParallelRows(dest_height, uint64_t(source_width) * source_height,
++               [&](uint32_t y_begin, uint32_t y_end) {
+     for (uint32_t y = y_begin; y < y_end; ++y) {
+       const uint32_t y0 = std::min(y * 2, source_height - 1);
+       const uint32_t y1 = std::min(y * 2 + 1, source_height - 1);
+-      for (uint32_t x = 0; x < mip_width; ++x) {
++      for (uint32_t x = 0; x < dest_width; ++x) {
+         const uint32_t x0 = std::min(x * 2, source_width - 1);
+         const uint32_t x1 = std::min(x * 2 + 1, source_width - 1);
+         const uint8_t* texels[4] = {
+@@ -1220,7 +1267,7 @@
+             weighted_sum[c] += uint32_t(texel[c]) * texel[3];
+           }
+         }
+-        uint8_t* out = mip.data() + (size_t(y) * mip_width + x) * 4;
++        uint8_t* out = dest + (size_t(y) * dest_width + x) * 4;
+         for (uint32_t c = 0; c < 3; ++c) {
+           out[c] = uint8_t(alpha_sum ? (weighted_sum[c] + alpha_sum / 2) / alpha_sum
+                                      : (color_sum[c] + 2) / 4);
+@@ -1228,7 +1275,19 @@
+         out[3] = uint8_t((alpha_sum + 2) / 4);
+       }
+     }
+-    });
++  });
++}
++
++std::vector<std::vector<uint8_t>> TextureReplacement::BuildMips(const uint8_t* pixels,
++                                                                uint32_t width, uint32_t height) {
++  std::vector<std::vector<uint8_t>> mips;
++  const uint8_t* source = pixels;
++  uint32_t source_width = width, source_height = height;
++  while (source_width > 1 || source_height > 1) {
++    const uint32_t mip_width = std::max(source_width >> 1, uint32_t(1));
++    const uint32_t mip_height = std::max(source_height >> 1, uint32_t(1));
++    std::vector<uint8_t>& mip = mips.emplace_back(size_t(mip_width) * mip_height * 4);
++    Downsample2x(source, source_width, source_height, mip.data(), mip_width, mip_height);
+     source = mip.data();
+     source_width = mip_width;
+     source_height = mip_height;
+@@ -1236,17 +1295,343 @@
+   return mips;
+ }
+ 
+-bool TextureReplacement::LoadFile(const std::filesystem::path& path, TextureReplacementData& out) {
++void TextureReplacement::FitReplacementSize(uint32_t& width, uint32_t& height) {
++  replacement_image::FitExtent(width, height, kMaxReplacementSize);
++}
++
++// ---------------------------------------------------------------------------
++// Premultiplied alpha
++// ---------------------------------------------------------------------------
++namespace {
++// Half-transparent texels the alpha checks look at.
++constexpr uint32_t kSoftAlphaMin = 8;
++constexpr uint32_t kSoftAlphaMax = 247;
++// How much brighter than alpha a premultiplied texel may come out (rounding,
++// and upscalers that work on the colour and alpha separately).
++constexpr uint32_t kPremultipliedTolerance = 8;
++// An image tells something only with this many half-transparent texels
++// sampled (and at least 1 in 500 of them).
++constexpr uint64_t kAlphaMinSoft = 256;
++
++bool AlphaStatsInformative(const TextureReplacement::AlphaStats& stats) {
++  return stats.soft >= kAlphaMinSoft && stats.soft * 500 >= stats.sampled;
++}
++
++// Logs a line once per file name (re-decoding after the RAM budget dropped a
++// texture doesn't log it again).
++bool FirstTimeFor(const std::filesystem::path& path) {
++  static std::mutex mutex;
++  static std::unordered_set<std::string> seen;
++  std::lock_guard<std::mutex> lock(mutex);
++  return seen.size() < 65536 && seen.insert(path.filename().string()).second;
++}
++}  // namespace
++
++TextureReplacement::AlphaStats TextureReplacement::GetAlphaStats(const uint8_t* pixels,
++                                                                 uint32_t width,
++                                                                 uint32_t height) {
++  // Big images every second row and column for the counts (all texels for
++  // whether there's any transparency).
++  const uint32_t step = uint64_t(width) * height > 1024 * 1024 ? 2 : 1;
++  std::atomic<uint64_t> soft{0}, brighter{0}, sampled{0};
++  std::atomic<bool> transparent{false};
++  ParallelRows(height, uint64_t(width) * height, [&](uint32_t y_begin, uint32_t y_end) {
++    uint64_t local_soft = 0, local_brighter = 0, local_sampled = 0;
++    bool local_transparent = false;
++    for (uint32_t y = y_begin; y < y_end; ++y) {
++      const uint8_t* row = pixels + size_t(y) * width * 4;
++      const bool sampled_row = y % step == 0;
++      for (uint32_t x = 0; x < width; ++x) {
++        const uint8_t* texel = row + size_t(x) * 4;
++        const uint32_t alpha = texel[3];
++        if (alpha != 255) {
++          local_transparent = true;
++        }
++        if (!sampled_row || x % step) {
++          continue;
++        }
++        ++local_sampled;
++        if (alpha < kSoftAlphaMin || alpha > kSoftAlphaMax) {
++          continue;
++        }
++        ++local_soft;
++        if (std::max({texel[0], texel[1], texel[2]}) > alpha + kPremultipliedTolerance) {
++          ++local_brighter;
++        }
++      }
++    }
++    soft.fetch_add(local_soft, std::memory_order_relaxed);
++    brighter.fetch_add(local_brighter, std::memory_order_relaxed);
++    sampled.fetch_add(local_sampled, std::memory_order_relaxed);
++    if (local_transparent) {
++      transparent.store(true, std::memory_order_relaxed);
++    }
++  });
++  AlphaStats stats;
++  stats.soft = soft.load();
++  stats.brighter = brighter.load();
++  stats.sampled = sampled.load();
++  stats.transparent = transparent.load();
++  return stats;
++}
++
++bool TextureReplacement::DecodeFile(const std::filesystem::path& path,
++                                    TextureReplacementData& out) {
+   const auto ext = LowerASCII(path.extension().string());
+-  const bool ok = ext == ".png" ? ReadPNG(path, out) : ReadDDS(path, out);
+-  if (!ok) {
+-    REXLOG_WARN("TextureReplacement: failed to load {}", path.filename().string());
++  return ext == ".png" ? ReadPNG(path, out) : ReadDDS(path, out);
++}
++
++// ---------------------------------------------------------------------------
++// The original texture (for the alpha check)
++// ---------------------------------------------------------------------------
++bool TextureReplacement::CanDecodeGuestFormat(xenos::TextureFormat format) {
++  using F = xenos::TextureFormat;
++  switch (format) {
++    // Formats with alpha worth comparing (DXT1's is 1-bit and black under
++    // it, telling nothing).
++    case F::k_DXT2_3:
++    case F::k_DXT2_3_AS_16_16_16_16:
++    case F::k_DXT4_5:
++    case F::k_DXT4_5_AS_16_16_16_16:
++    case F::k_8_8_8_8:
++    case F::k_8_8_8_8_A:
++    case F::k_4_4_4_4:
++      return true;
++    default:
++      return false;
++  }
++}
++
++bool TextureReplacement::DecodeGuest(const TextureReplacementGuest& guest,
++                                     std::vector<uint8_t>& rgba) {
++  using F = xenos::TextureFormat;
++  const FormatInfo* format_info = FormatInfo::Get(guest.format);
++  if (!format_info || !guest.width || !guest.height || !CanDecodeGuestFormat(guest.format)) {
+     return false;
+   }
+-  out.mips = BuildMips(out.pixels.data(), out.width, out.height);
++  const uint32_t bytes_per_block = format_info->bytes_per_block();
++  if (!bytes_per_block || (bytes_per_block & (bytes_per_block - 1)) || !guest.row_pitch_bytes) {
++    return false;
++  }
++  const uint32_t x_blocks = (guest.width + format_info->block_width - 1) / format_info->block_width;
++  const uint32_t y_blocks =
++      (guest.height + format_info->block_height - 1) / format_info->block_height;
++  // The blocks in rows, as the guest addresses them (like HashReplacementBase).
++  std::vector<uint8_t> linear(size_t(x_blocks) * y_blocks * bytes_per_block);
++  const uint32_t bytes_per_block_log2 = rex::log2_floor(bytes_per_block);
++  const uint32_t pitch_blocks = guest.row_pitch_bytes / bytes_per_block;
++  for (uint32_t y = 0; y < y_blocks; ++y) {
++    for (uint32_t x = 0; x < x_blocks; ++x) {
++      const uint64_t offset =
++          guest.tiled ? uint64_t(uint32_t(texture_util::GetTiledOffset2D(
++                            int32_t(x), int32_t(y), pitch_blocks, bytes_per_block_log2)))
++                      : uint64_t(y) * guest.row_pitch_bytes + uint64_t(x) * bytes_per_block;
++      if (offset + bytes_per_block > guest.bytes.size()) {
++        return false;
++      }
++      std::memcpy(linear.data() + (size_t(y) * x_blocks + x) * bytes_per_block,
++                  guest.bytes.data() + offset, bytes_per_block);
++    }
++  }
++  if (guest.endianness != xenos::Endian::kNone) {
++    texture_conversion::CopySwapBlock(guest.endianness, linear.data(), linear.data(),
++                                      linear.size());
++  }
++  if (format_info->type == FormatType::kCompressed) {
++    const bool dxt3 = guest.format == F::k_DXT2_3 || guest.format == F::k_DXT2_3_AS_16_16_16_16;
++    if (!DecodeBCToRGBA8(linear.data(), linear.size(), guest.width, guest.height,
++                         dxt3 ? DdsDecodeFormat::kBC2 : DdsDecodeFormat::kBC3, rgba)) {
++      return false;
++    }
++  } else {
++    rgba.resize(size_t(guest.width) * guest.height * 4);
++    for (size_t i = 0; i < size_t(guest.width) * guest.height; ++i) {
++      if (!TexelToRGBA8(linear.data() + i * bytes_per_block, guest.format, &rgba[i * 4])) {
++        return false;
++      }
++    }
++  }
++  // In the colours the game shows (replacement images hold those).
++  uint32_t channel_of[4];
++  if (GetSwizzleColorOrder(guest.swizzle, channel_of) &&
++      (channel_of[0] != 0 || channel_of[1] != 1 || channel_of[2] != 2)) {
++    for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
++      const uint8_t texel[4] = {rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]};
++      for (uint32_t c = 0; c < 4; ++c) {
++        rgba[i + channel_of[c]] = texel[c];
++      }
++    }
++  }
+   return true;
+ }
+ 
++bool TextureReplacement::WantsGuestReference(uint64_t content_hash) const {
++  if (REXCVAR_GET(texture_replace_alpha) == "straight") {
++    return false;
++  }
++  std::lock_guard<std::mutex> lock(cache_mutex_);
++  return replacements_.count(content_hash) && !pixel_cache_.count(content_hash) &&
++         !failed_cache_.count(content_hash) && !guest_refs_.count(content_hash);
++}
++
++void TextureReplacement::SetGuestReference(
++    uint64_t content_hash, std::shared_ptr<const TextureReplacementGuest> guest) const {
++  std::lock_guard<std::mutex> lock(cache_mutex_);
++  // Only those waiting to be decoded - a few at a time, normally.
++  if (guest_refs_.size() >= 1024) {
++    guest_refs_.clear();
++  }
++  guest_refs_[content_hash] = std::move(guest);
++}
++
++// ---------------------------------------------------------------------------
++// Loading a replacement
++// ---------------------------------------------------------------------------
++bool TextureReplacement::FixAlpha(uint64_t hash, const std::filesystem::path& path,
++                                  TextureReplacementData& data, bool allow_defer) const {
++  namespace image = replacement_image;
++  const std::string mode = REXCVAR_GET(texture_replace_alpha);
++  if (mode == "straight" ||
++      !image::HasTransparency(data.pixels.data(), uint64_t(data.width) * data.height)) {
++    return true;
++  }
++  const bool forced = mode == "premultiplied";
++
++  // The game's own texture, when it was handed over with the lookup.
++  std::shared_ptr<const TextureReplacementGuest> guest;
++  {
++    std::lock_guard<std::mutex> lock(cache_mutex_);
++    auto it = guest_refs_.find(hash);
++    if (it != guest_refs_.end()) {
++      guest = it->second;
++    }
++  }
++  std::vector<uint8_t> original;
++  if (guest && DecodeGuest(*guest, original)) {
++    // Compared with the original: decided for this texture alone.
++    const image::AlphaCheck check = image::ClassifyAgainstOriginal(
++        data.pixels.data(), data.width, data.height, original.data(), guest->width,
++        guest->height);
++    if (!check.cutout) {
++      if (check.kind == image::AlphaKind::kPremultiplied) {
++        ++premultiplied_votes_;
++      } else if (check.kind == image::AlphaKind::kStraight) {
++        ++straight_votes_;
++      }
++    }
++    image::AlphaKind kind = check.kind;
++    if (forced && kind != image::AlphaKind::kLostColour) {
++      kind = image::AlphaKind::kPremultiplied;
++    }
++    if (kind != image::AlphaKind::kPremultiplied && kind != image::AlphaKind::kLostColour) {
++      return true;
++    }
++    image::RestoreStraightAlpha(data.pixels.data(), data.width, data.height, kind,
++                                original.data(), guest->width, guest->height);
++    const uint32_t fixed = ++alpha_fixed_count_;
++    if (FirstTimeFor(path) && (fixed <= 48 || fixed % 100 == 0)) {
++      if (kind == image::AlphaKind::kLostColour) {
++        REXLOG_INFO(
++            "TextureReplacement: {} is black under its transparent texels where the original "
++            "has colour (original {:.0f}, image {:.0f}) - the original's colour put back ({} "
++            "fixed so far)",
++            path.filename().string(), check.error_a, check.error_b, fixed);
++      } else if (check.cutout || forced) {
++        REXLOG_INFO(
++            "TextureReplacement: {} has premultiplied alpha{} - converted to straight alpha, the "
++            "original's colour under its transparent texels ({} fixed so far)",
++            path.filename().string(),
++            forced ? " (texture_replace_alpha = premultiplied)" : " (black under transparency)",
++            fixed);
++      } else {
++        REXLOG_INFO(
++            "TextureReplacement: {} has premultiplied alpha (colour difference from the "
++            "original: {:.1f} as straight, {:.1f} as premultiplied) - converted to straight "
++            "alpha, the original's colour under its transparent texels ({} fixed so far)",
++            path.filename().string(), check.error_a, check.error_b, fixed);
++      }
++    }
++    if (!pack_verdict_logged_ && premultiplied_votes_ >= 3 &&
++        premultiplied_votes_ >= 3 * straight_votes_ && !pack_verdict_logged_.exchange(true)) {
++      REXLOG_INFO(
++          "TextureReplacement: this pack has premultiplied alpha ({} of {} textures compared "
++          "with the game's originals so far) - such images are converted as they load",
++          uint32_t(premultiplied_votes_), uint32_t(premultiplied_votes_ + straight_votes_));
++    }
++    return true;
++  }
++
++  // No original to compare with (decoded ahead by the preload, or a guest
++  // format the check can't read): the image's own texels and the pack as a
++  // whole decide.
++  const AlphaStats alpha = GetAlphaStats(data.pixels.data(), data.width, data.height);
++  // Most of its colour brighter than its alpha: straight (whatever the pack).
++  const bool straight = AlphaStatsInformative(alpha) && alpha.brighter * 2 > alpha.soft;
++  if (straight) {
++    return true;
++  }
++  if (allow_defer) {
++    // Loaded again when the game asks for it, with its original.
++    return false;
++  }
++  if (!forced && !IsPackPremultiplied()) {
++    return true;
++  }
++  image::RestoreStraightAlpha(data.pixels.data(), data.width, data.height,
++                              image::AlphaKind::kPremultiplied, nullptr, 0, 0);
++  const uint32_t fixed = ++alpha_fixed_count_;
++  if (FirstTimeFor(path) && (fixed <= 48 || fixed % 100 == 0)) {
++    REXLOG_INFO(
++        "TextureReplacement: {} has premultiplied alpha (the pack's; no original to compare "
++        "with) - converted to straight alpha ({} fixed so far)",
++        path.filename().string(), fixed);
++  }
++  return true;
++}
++
++TextureReplacement::LoadResult TextureReplacement::LoadReplacement(
++    uint64_t hash, const std::filesystem::path& path, TextureReplacementData& out,
++    bool allow_defer) const {
++  if (!DecodeFile(path, out)) {
++    REXLOG_WARN("TextureReplacement: failed to load {}", path.filename().string());
++    return LoadResult::kFailed;
++  }
++
++  // Premultiplied alpha to straight, before anything averages texels.
++  if (!FixAlpha(hash, path, out, allow_defer)) {
++    return LoadResult::kDeferred;
++  }
++
++  // Bigger than a texture can be: downscaled to fit, area-averaged (the size
++  // lookups say the same, see ReadImageSize).
++  uint32_t fit_width = out.width, fit_height = out.height;
++  FitReplacementSize(fit_width, fit_height);
++  if (fit_width != out.width || fit_height != out.height) {
++    std::vector<uint8_t> fitted = replacement_image::DownscaleArea(
++        out.pixels.data(), out.width, out.height, fit_width, fit_height);
++    if (FirstTimeFor(path.filename().string() + "#size")) {
++      REXLOG_INFO(
++          "TextureReplacement: {} is {}x{}, more than a texture can be ({} per side) - used at "
++          "{}x{}",
++          path.filename().string(), out.width, out.height, kMaxReplacementSize, fit_width,
++          fit_height);
++    }
++    out.pixels.swap(fitted);
++    out.width = fit_width;
++    out.height = fit_height;
++  }
++
++  out.mip_levels = 1;
++  out.mips = BuildMips(out.pixels.data(), out.width, out.height);
++  // Its original isn't needed any more (given again if it has to be decoded
++  // again).
++  {
++    std::lock_guard<std::mutex> lock(cache_mutex_);
++    guest_refs_.erase(hash);
++  }
++  return LoadResult::kLoaded;
++}
++
+ bool TextureReplacement::ReadImageSize(const std::filesystem::path& path, uint32_t& width,
+                                        uint32_t& height) {
+   uint8_t header[24] = {};
+@@ -1271,7 +1656,12 @@
+     height = little_endian(12);
+     width = little_endian(16);
+   }
+-  return width && height && width <= 16384 && height <= 16384;
++  if (!width || !height || width > 16384 || height > 16384) {
++    return false;
++  }
++  // The size it's used at (LoadFile halves bigger images).
++  FitReplacementSize(width, height);
++  return true;
+ }
+ 
+ uint64_t TextureReplacement::DecodedSize(const std::filesystem::path& path) {
+@@ -1329,6 +1719,12 @@
+     path = it->second;
+   }
+   const bool ok = ReadImageSize(path, width, height);
++  if (!ok) {
++    REXLOG_WARN(
++        "TextureReplacement: {} can't be used (not a PNG or DDS image, or more than 16384 per "
++        "side) - the original texture is shown",
++        path.filename().string());
++  }
+   std::lock_guard<std::mutex> lock(cache_mutex_);
+   if (ok) {
+     size_cache_[content_hash] = {width, height};
+@@ -1364,17 +1760,19 @@
+   }
+   const uint64_t before = pixel_cache_bytes_;
+   size_t dropped = 0;
+-  // Oldest first; a few thousand entries at most, and only when a new texture
+-  // pushed the cache over.
+-  std::vector<std::pair<uint64_t, uint64_t>> by_age;  // last use, hash
++  // The ones already handed out (their textures are made) first, oldest
++  // first; those decoded in the background and not used yet last - the game
++  // is about to ask for them. A few thousand entries at most, and only when
++  // the cache is over its budget.
++  std::vector<std::tuple<bool, uint64_t, uint64_t>> by_age;  // not used yet, last use, hash
+   by_age.reserve(pixel_cache_use_.size());
+   for (const auto& [hash, use] : pixel_cache_use_) {
+     if (hash != keep) {
+-      by_age.emplace_back(use.last_use, hash);
++      by_age.emplace_back(!use.used, use.last_use, hash);
+     }
+   }
+   std::sort(by_age.begin(), by_age.end());
+-  for (const auto& [last_use, hash] : by_age) {
++  for (const auto& [not_used, last_use, hash] : by_age) {
+     if (pixel_cache_bytes_ <= pixel_cache_budget_) {
+       break;
+     }
+@@ -1384,13 +1782,31 @@
+     pixel_cache_.erase(hash);
+     ++dropped;
+   }
+-  REXLOG_INFO("TextureReplacement: dropped {} decoded texture(s) from RAM ({} -> {} MB)", dropped,
+-              before >> 20, pixel_cache_bytes_ >> 20);
++  // Logged at most every 10 s (with the background loading this runs often
++  // once the budget is full).
++  trim_log_dropped_ += dropped;
++  const auto now = std::chrono::steady_clock::now();
++  if (trim_log_dropped_ && now - trim_log_time_ >= std::chrono::seconds(10)) {
++    REXLOG_INFO(
++        "TextureReplacement: dropped {} decoded texture(s) from RAM (now {} MB, "
++        "texture_replace_ram_mb {} MB; was {} MB)",
++        trim_log_dropped_, pixel_cache_bytes_ >> 20, pixel_cache_budget_ >> 20, before >> 20);
++    trim_log_dropped_ = 0;
++    trim_log_time_ = now;
++  }
+ }
+ 
+ void TextureReplacement::StartPreload() const {
+   preload_started_ = true;
+   pixel_cache_budget_ = uint64_t(std::max(REXCVAR_GET(texture_replace_ram_mb), 1)) << 20;
++  // Whether the pack has premultiplied alpha is needed by every load: the
++  // survey starts with the first lookup, so it's usually done before the first
++  // replacement is decoded.
++  if (!replacements_.empty() && REXCVAR_GET(texture_replace_alpha) != "straight" &&
++      REXCVAR_GET(texture_replace_alpha) != "premultiplied") {
++    std::lock_guard<std::mutex> alpha_lock(alpha_mutex_);
++    StartAlphaSurvey();
++  }
+   if (!REXCVAR_GET(texture_replace_preload) || replacements_.empty()) {
+     return;
+   }
+@@ -1454,7 +1870,10 @@
+     }
+     if (needed) {
+       TextureReplacementData loaded;
+-      const bool ok = LoadFile(path, loaded);
++      // Deferred: its alpha needs its original, given when the game asks for
++      // it - left for that load.
++      const LoadResult result = LoadReplacement(hash, path, loaded, true);
++      const bool ok = result == LoadResult::kLoaded;
+       if (ok) {
+         Prepare(loaded);
+       }
+@@ -1462,7 +1881,7 @@
+         std::lock_guard<std::mutex> lock(cache_mutex_);
+         if (ok) {
+           AddToPixelCache(hash, std::move(loaded));
+-        } else {
++        } else if (result == LoadResult::kFailed) {
+           failed_cache_.insert(hash);
+         }
+         preload_in_progress_.erase(hash);
+@@ -1479,6 +1898,150 @@
+ }
+ 
+ // ---------------------------------------------------------------------------
++// Premultiplied-alpha survey (texture_replace_alpha = auto)
++// ---------------------------------------------------------------------------
++// A pack is either: whoever made it exported all of it the same way. One image
++// can't always tell - dark straight images (shadows, shading masks) also keep
++// their colour below their alpha - so a sample of the pack's images votes:
++// premultiplied ones have almost no texel brighter than its alpha, straight
++// ones mostly have.
++namespace {
++// Whether an image file can have half-transparent texels, from its header.
++bool MayHaveSoftAlpha(const std::filesystem::path& path) {
++  uint8_t header[88] = {};
++  std::ifstream file(path, std::ios::binary);
++  file.read(reinterpret_cast<char*>(header), sizeof(header));
++  if (!std::memcmp(header, "\x89PNG", 4)) {
++    const uint8_t color_type = header[25];  // IHDR: palette, gray + alpha, RGBA
++    return color_type == 3 || color_type == 4 || color_type == 6;
++  }
++  if (!std::memcmp(header, "DDS ", 4)) {
++    uint32_t four_cc;
++    std::memcpy(&four_cc, header + 84, sizeof(four_cc));
++    return four_cc != kFourCC_DXT1;  // 1-bit alpha
++  }
++  return false;
++}
++// Images decoded at most, and how many that tell something are enough.
++constexpr uint32_t kAlphaSurveyMaxImages = 160;
++constexpr uint32_t kAlphaSurveyVotes = 24;
++}  // namespace
++
++bool TextureReplacement::IsPackPremultiplied() const {
++  std::unique_lock<std::mutex> lock(alpha_mutex_);
++  if (pack_alpha_ == PackAlpha::kUnknown) {
++    const std::string mode = REXCVAR_GET(texture_replace_alpha);
++    if (mode == "straight") {
++      pack_alpha_ = PackAlpha::kStraight;
++    } else if (mode == "premultiplied") {
++      pack_alpha_ = PackAlpha::kPremultiplied;
++      REXLOG_INFO(
++          "TextureReplacement: texture_replace_alpha = premultiplied - the pack's images are "
++          "converted to straight alpha as they load");
++    } else {
++      StartAlphaSurvey();
++      alpha_decided_.wait(lock, [this]() { return pack_alpha_ != PackAlpha::kUnknown; });
++    }
++  }
++  return pack_alpha_ == PackAlpha::kPremultiplied;
++}
++
++void TextureReplacement::StartAlphaSurvey() const {
++  if (alpha_survey_started_ || pack_alpha_ != PackAlpha::kUnknown) {
++    return;
++  }
++  alpha_survey_started_ = true;
++  alpha_survey_next_ = 0;
++  alpha_votes_premultiplied_ = 0;
++  alpha_votes_straight_ = 0;
++  alpha_votes_looked_ = 0;
++  alpha_survey_start_time_ = std::chrono::steady_clock::now();
++  const uint32_t thread_count = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 4u);
++  alpha_survey_active_ = thread_count;
++  for (uint32_t i = 0; i < thread_count; ++i) {
++    rex::thread::Thread::CreationParameters params;
++    params.stack_size = 1024 * 1024;
++    auto thread = rex::thread::Thread::Create(params, [this]() { AlphaSurveyWorker(); });
++    if (!thread) {
++      if (alpha_survey_active_.fetch_sub(1) == 1) {
++        FinishAlphaSurvey();
++      }
++      continue;
++    }
++    thread->set_name("Texture Alpha Survey");
++    alpha_survey_threads_.push_back(std::move(thread));
++  }
++}
++
++void TextureReplacement::StopAlphaSurvey() {
++  std::vector<std::unique_ptr<rex::thread::Thread>> threads;
++  {
++    std::lock_guard<std::mutex> lock(alpha_mutex_);
++    threads.swap(alpha_survey_threads_);
++    alpha_survey_stop_ = true;
++  }
++  for (auto& thread : threads) {
++    rex::thread::Wait(thread.get(), false);
++  }
++  std::lock_guard<std::mutex> lock(alpha_mutex_);
++  alpha_survey_stop_ = false;
++}
++
++void TextureReplacement::AlphaSurveyWorker() const {
++  while (!alpha_survey_stop_ &&
++         alpha_votes_premultiplied_ + alpha_votes_straight_ < kAlphaSurveyVotes &&
++         alpha_votes_looked_ < kAlphaSurveyMaxImages) {
++    const size_t index = alpha_survey_next_.fetch_add(1);
++    if (index >= alpha_survey_files_.size()) {
++      break;
++    }
++    const std::filesystem::path& path = alpha_survey_files_[index];
++    if (!MayHaveSoftAlpha(path)) {
++      continue;
++    }
++    TextureReplacementData image;
++    if (!DecodeFile(path, image)) {
++      continue;
++    }
++    alpha_votes_looked_.fetch_add(1);
++    const AlphaStats stats = GetAlphaStats(image.pixels.data(), image.width, image.height);
++    if (!AlphaStatsInformative(stats)) {
++      continue;
++    }
++    if (stats.brighter * 20 <= stats.soft) {
++      // At most 5% brighter than alpha.
++      alpha_votes_premultiplied_.fetch_add(1);
++    } else if (stats.brighter * 4 >= stats.soft) {
++      // A quarter or more.
++      alpha_votes_straight_.fetch_add(1);
++    }
++  }
++  if (alpha_survey_active_.fetch_sub(1) == 1) {
++    // The last one decides.
++    std::lock_guard<std::mutex> lock(alpha_mutex_);
++    FinishAlphaSurvey();
++  }
++}
++
++void TextureReplacement::FinishAlphaSurvey() const {
++  const uint32_t premultiplied = alpha_votes_premultiplied_;
++  const uint32_t straight = alpha_votes_straight_;
++  const bool is_premultiplied = premultiplied >= 3 && premultiplied >= straight * 4;
++  pack_alpha_ = is_premultiplied ? PackAlpha::kPremultiplied : PackAlpha::kStraight;
++  REXLOG_INFO(
++      "TextureReplacement: {} ({} of {} images looked at premultiplied, {} straight, {} ms; "
++      "texture_replace_alpha = auto)",
++      is_premultiplied ? "the pack's images have premultiplied alpha - they're converted to "
++                         "straight alpha (the game's) as they load"
++                       : "the pack's images have straight alpha",
++      premultiplied, uint32_t(alpha_votes_looked_), straight,
++      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
++                                                            alpha_survey_start_time_)
++          .count());
++  alpha_decided_.notify_all();
++}
++
++// ---------------------------------------------------------------------------
+ // Asynchronous loading
+ // ---------------------------------------------------------------------------
+ bool TextureReplacement::IsResident(uint64_t content_hash) const {
+@@ -1486,6 +2049,13 @@
+     return true;
+   }
+   std::lock_guard<std::mutex> lock(cache_mutex_);
++  auto use = pixel_cache_use_.find(content_hash);
++  if (use != pixel_cache_use_.end()) {
++    // About to be made into a texture: the newest, so trimming the RAM
++    // budget before FindReplacement gets to it doesn't drop it.
++    use->second.last_use = ++pixel_cache_clock_;
++    return true;
++  }
+   return pixel_cache_.count(content_hash) || failed_cache_.count(content_hash) ||
+          !replacements_.count(content_hash);
+ }
+@@ -1493,6 +2063,10 @@
+ void TextureReplacement::RequestAsync(uint64_t content_hash) const {
+   {
+     std::lock_guard<std::mutex> lock(cache_mutex_);
++    // The loading threads add without trimming (FindReplacement's pointers
++    // must stay valid until its next call): texture_replace_ram_mb is kept
++    // here and in FindReplacement, on the thread asking for textures.
++    TrimPixelCache(0);
+     if (pixel_cache_.count(content_hash) || failed_cache_.count(content_hash) ||
+         preload_in_progress_.count(content_hash) || !replacements_.count(content_hash) ||
+         std::find(async_queue_.begin(), async_queue_.end(), content_hash) !=
+@@ -1539,7 +2113,7 @@
+     }
+     const auto load_start = std::chrono::steady_clock::now();
+     TextureReplacementData loaded;
+-    const bool ok = LoadFile(path, loaded);
++    const bool ok = LoadReplacement(hash, path, loaded, false) == LoadResult::kLoaded;
+     if (ok) {
+       Prepare(loaded);
+     }
+@@ -1556,7 +2130,7 @@
+       std::lock_guard<std::mutex> lock(cache_mutex_);
+       if (ok) {
+         // Not trimmed here: FindReplacement's pointers must stay valid until
+-        // its next call, which trims.
++        // its next call - it and RequestAsync trim.
+         AddToPixelCache(hash, std::move(loaded));
+       } else {
+         failed_cache_.insert(hash);
+@@ -1644,7 +2218,11 @@
+       auto use = pixel_cache_use_.find(content_hash);
+       if (use != pixel_cache_use_.end()) {
+         use->second.last_use = ++pixel_cache_clock_;
++        use->second.used = true;
+       }
++      // texture_replace_ram_mb also with the background loading (which only
++      // adds): the pointers handed out before are used by now.
++      TrimPixelCache(content_hash);
+       return &cached->second;
+     }
+     // Known failure — don't retry.
+@@ -1663,7 +2241,7 @@
+   // Not decoded yet (needed before the preload got to it, or it's off).
+   const auto load_start = std::chrono::steady_clock::now();
+   TextureReplacementData loaded;
+-  const bool ok = LoadFile(path, loaded);
++  const bool ok = LoadReplacement(content_hash, path, loaded, false) == LoadResult::kLoaded;
+   {
+     rex::perf::TextureCacheStats& stats = rex::perf::GetTextureCacheStats();
+     stats.replacement_decodes.fetch_add(1, std::memory_order_relaxed);
+@@ -1685,6 +2263,7 @@
+     std::lock_guard<std::mutex> lock(cache_mutex_);
+     if (ok) {
+       result = AddToPixelCache(content_hash, std::move(loaded));
++      pixel_cache_use_[content_hash].used = true;
+       TrimPixelCache(content_hash);
+     } else {
+       failed_cache_.insert(content_hash);
+diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
+--- a/src/input/input_system.cpp
++++ b/src/input/input_system.cpp
+@@ -27,6 +27,7 @@
+ #include <rex/input/state_merge.h>
+ #include <rex/input/xinput/xinput_input_driver.h>
+ #include <rex/logging.h>
++#include <rex/perf/frame_rate.h>
+ #include <rex/system/kernel_state.h>
+ 
+ REXCVAR_DEFINE_STRING(input_backend, "sdl", "Input", "Input backend: sdl, xinput")
+@@ -313,6 +314,21 @@
+     ui_toggle_combo_held_[user_index] = combo_held;
+   }
+ 
++  if (user_index == 0 && rex::perf::IsLatencyLogging()) {
++    // Latency probe: a button the guest sees pressed now and not at its
++    // previous read of user 0.
++    static uint16_t previous_buttons = 0;
++    const uint16_t buttons =
++        (result == X_ERROR_SUCCESS && out_state) ? uint16_t(out_state->gamepad.buttons) : 0;
++    if (buttons & ~previous_buttons) {
++      rex::perf::LatencyOpenWindow();
++      rex::perf::LatencyLog("read", buttons & ~previous_buttons, buttons);
++    } else {
++      rex::perf::LatencyLog("poll", buttons);
++    }
++    previous_buttons = buttons;
++  }
++
+   if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers &&
+       consumed_buttons_[user_index] != 0) {
+     const uint16_t buttons = out_state->gamepad.buttons;
+@@ -338,6 +354,8 @@
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count()) +
+       duration_ms;
++  rex::perf::LatencyOpenWindow();
++  rex::perf::LatencyLog("inject", buttons, duration_ms);
+ }
+ 
+ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_state) {
+diff --git a/src/input/nop/nop_input_driver.cpp b/src/input/nop/nop_input_driver.cpp
+--- a/src/input/nop/nop_input_driver.cpp
++++ b/src/input/nop/nop_input_driver.cpp
+@@ -9,18 +9,35 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <algorithm>
+ #include <cstring>
++#include <string>
+ 
+ #include <rex/input/flags.h>
++#include <rex/cvar.h>
+ #include <rex/input/nop/nop_input_driver.h>
+ #include <rex/logging.h>
+ 
++REXCVAR_DEFINE_UINT32(input_test_pads, 0, "Input",
++                      "Debug: number of idle virtual controllers that count as real pads (pad 1 = "
++                      "guest user 0, pad 2 = user 1...), for automated tests of multi-pad setups "
++                      "with pad_press <buttons> <ms> <user>")
++    .range(0, 4);
++
+ namespace rex::input::nop {
+ 
+ namespace {
+ 
+ // A single device, so its handle is a constant.
+ constexpr rex::input::DeviceId kNopDevice = static_cast<rex::input::DeviceId>(0x4E4F5000);
++// input_test_pads devices: kNopDevice + 1 + n.
++constexpr uint32_t kMaxTestPads = 4;
++
++bool IsNopDevice(rex::input::DeviceId id) {
++  const uint64_t value = static_cast<uint64_t>(id);
++  const uint64_t base = static_cast<uint64_t>(kNopDevice);
++  return value >= base && value <= base + std::min<uint32_t>(REXCVAR_GET(input_test_pads), kMaxTestPads);
++}
+ 
+ }  // namespace
+ 
+@@ -42,11 +59,20 @@
+   info.name = "None";
+   info.synthetic = true;
+   out.push_back(info);
++
++  const uint32_t test_pads = std::min<uint32_t>(REXCVAR_GET(input_test_pads), kMaxTestPads);
++  for (uint32_t n = 0; n < test_pads; ++n) {
++    DeviceInfo pad;
++    pad.id = static_cast<rex::input::DeviceId>(static_cast<uint32_t>(kNopDevice) + 1 + n);
++    pad.name = "Test pad " + std::to_string(n + 1);
++    pad.synthetic = false;
++    out.push_back(pad);
++  }
+ }
+ 
+ X_RESULT NopInputDriver::GetDeviceCapabilities(DeviceId id, uint32_t flags,
+                                                X_INPUT_CAPABILITIES* out_caps) {
+-  if (id != kNopDevice) {
++  if (!IsNopDevice(id)) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+   if (out_caps) {
+@@ -69,7 +95,7 @@
+ }
+ 
+ X_RESULT NopInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+-  if (id != kNopDevice) {
++  if (!IsNopDevice(id)) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+   if (out_state) {
+@@ -80,7 +106,7 @@
+ }
+ 
+ X_RESULT NopInputDriver::SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibration) {
+-  if (id != kNopDevice) {
++  if (!IsNopDevice(id)) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+   // Accept vibration but do nothing
+@@ -89,7 +115,7 @@
+ 
+ X_RESULT NopInputDriver::GetDeviceKeystroke(DeviceId id, uint32_t flags,
+                                             X_INPUT_KEYSTROKE* out_keystroke) {
+-  if (id != kNopDevice) {
++  if (!IsNopDevice(id)) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+   // No keystrokes available
+diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -11,8 +11,11 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <atomic>
+ #include <cctype>
++#include <chrono>
+ #include <filesystem>
++#include <string>
+ #include <string_view>
+ 
+ #include <rex/assert.h>
+@@ -26,10 +29,30 @@
+ REXCVAR_DEFINE_STRING(hid_mappings_file, "gamecontrollerdb.txt", "Input",
+                       "Path to SDL gamecontroller mappings file");
+ 
++REXCVAR_DEFINE_BOOL(hid_generic_mapping, true, "Input",
++                    "Controllers SDL has no mapping for (some DirectInput-only and laptop "
++                    "gamepads) get a generic one (buttons 1-4 = A B X Y, the last ones = "
++                    "Back / Start, the first stick and hat = moving) instead of being ignored");
++REXCVAR_DEFINE_BOOL(input_poll_on_read, true, "Input",
++                    "Read the controllers at the moment the game asks for their state. Off = "
++                    "the state of the last update the UI thread ran, which the game's previous "
++                    "read queued (up to a frame old).")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::input::sdl {
+ 
+ namespace {
+ 
++// Steady clock time of the latest controller update (SDL_UpdateGamepads),
++// from whichever thread ran it.
++std::atomic<int64_t> g_controllers_updated_ns{0};
++
++int64_t SteadyNowNs() {
++  return std::chrono::duration_cast<std::chrono::nanoseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
+ // SDL clamps to SDL_MAX_RUMBLE_DURATION_MS, which is not a public constant.
+ constexpr uint32_t kRumbleDurationMs = 0xFFFF;
+ 
+@@ -342,6 +365,20 @@
+   auto is_active = this->is_active();
+ 
+   if (is_active) {
++    // The state the game reads is the one of the last controller update. The
++    // update queued below runs on the UI thread after this read, so without a
++    // fresh one here a press would wait for the game's next read (a frame).
++    // SDL_UpdateGamepads is thread safe (SDL's joystick lock); the events it
++    // generates reach HandleEvent (event watch) on this thread, and are
++    // applied by DrainAndLock below. Several reads within 1 ms (one per user)
++    // share one update.
++    if (REXCVAR_GET(input_poll_on_read)) {
++      const int64_t now = SteadyNowNs();
++      if (now - g_controllers_updated_ns.load(std::memory_order_relaxed) >= 1'000'000) {
++        SDL_UpdateGamepads();
++        g_controllers_updated_ns.store(now, std::memory_order_relaxed);
++      }
++    }
+     QueueControllerUpdate();
+   }
+ 
+@@ -602,6 +639,9 @@
+       name ? name : "?", SDL_GetJoystickVendorForID(id), SDL_GetJoystickProductForID(id), guid_text,
+       is_gamepad);
+   if (!is_gamepad) {
++    if (REXCVAR_GET(hid_generic_mapping) && AddGenericMapping(id, name, guid_text)) {
++      return;
++    }
+     REXLOG_WARN(
+         "SDL JoystickAdded: \"{}\" has no gamepad mapping, so it will not be usable. Add one to "
+         "the file named by --hid_mappings_file.",
+@@ -609,6 +649,73 @@
+   }
+ }
+ 
++bool SDLInputDriver::AddGenericMapping(SDL_JoystickID id, const char* name, const char* guid) {
++  // Only things that look like a gamepad: not wheels, guitars, flight sticks.
++  const SDL_JoystickType type = SDL_GetJoystickTypeForID(id);
++  if (type != SDL_JOYSTICK_TYPE_UNKNOWN && type != SDL_JOYSTICK_TYPE_GAMEPAD) {
++    return false;
++  }
++  SDL_Joystick* joystick = SDL_OpenJoystick(id);
++  if (!joystick) {
++    return false;
++  }
++  const int buttons = SDL_GetNumJoystickButtons(joystick);
++  const int axes = SDL_GetNumJoystickAxes(joystick);
++  const int hats = SDL_GetNumJoystickHats(joystick);
++  SDL_CloseJoystick(joystick);
++  if (buttons < 4) {
++    return false;
++  }
++  // The usual generic USB pad: 4 face buttons, L1 R1 L2 R2, Select, Start,
++  // L3, R3 (fewer buttons: Back / Start are the last two).
++  std::string mapping = std::string(guid) + "," + (name && *name ? name : "Generic gamepad");
++  auto button = [&](const char* what, int index) {
++    if (index >= 0 && index < buttons) {
++      mapping += std::string(",") + what + ":b" + std::to_string(index);
++    }
++  };
++  button("a", 0);
++  button("b", 1);
++  button("x", 2);
++  button("y", 3);
++  if (buttons >= 10) {
++    button("leftshoulder", 4);
++    button("rightshoulder", 5);
++    button("lefttrigger", 6);
++    button("righttrigger", 7);
++    button("back", 8);
++    button("start", 9);
++    button("leftstick", 10);
++    button("rightstick", 11);
++  } else {
++    if (buttons >= 8) {
++      button("leftshoulder", 4);
++      button("rightshoulder", 5);
++    }
++    button("back", buttons - 2);
++    button("start", buttons - 1);
++  }
++  if (axes >= 2) {
++    mapping += ",leftx:a0,lefty:a1";
++  }
++  if (axes >= 4) {
++    mapping += ",rightx:a2,righty:a3";
++  }
++  if (hats >= 1) {
++    mapping += ",dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8";
++  }
++  // SDL announces the pad as a gamepad once it has a mapping.
++  if (SDL_AddGamepadMapping(mapping.c_str()) < 0) {
++    REXLOG_WARN("SDL JoystickAdded: \"{}\": generic mapping refused: {}", name ? name : "?",
++                SDL_GetError());
++    return false;
++  }
++  REXLOG_INFO("SDL JoystickAdded: \"{}\" had no gamepad mapping; using a generic one ({} buttons, "
++              "{} axes, {} hats): {}",
++              name ? name : "?", buttons, axes, hats, mapping);
++  return true;
++}
++
+ void SDLInputDriver::OnControllerDeviceAddedLocked(const SDL_Event& event) {
+   // Already in use (added at startup and announced by SDL as well).
+   if (GetControllerIndexFromInstanceID(event.gdevice.which)) {
+@@ -872,6 +979,7 @@
+   if (!is_queued) {
+     attached_window_->app_context().CallInUIThread([this]() {
+       SDL_PumpEvents();
++      g_controllers_updated_ns.store(SteadyNowNs(), std::memory_order_relaxed);
+       sdl_pumpevents_queued_ = false;
+     });
+   }
+diff --git a/src/kernel/xam/xam_user.cpp b/src/kernel/xam/xam_user.cpp
+--- a/src/kernel/xam/xam_user.cpp
++++ b/src/kernel/xam/xam_user.cpp
+@@ -45,8 +45,8 @@
+   uint32_t result = X_E_NO_SUCH_USER;
+   uint64_t xuid = 0;
+   if (user_index < 4) {
+-    if (user_index == 0) {
+-      const auto& user_profile = REX_KERNEL_STATE()->user_profile();
++    const auto& user_profile = REX_KERNEL_STATE()->user_profile();
++    if (user_profile->IsSignedIn(user_index)) {
+       auto type = user_profile->type() & type_mask;
+       if (type & (2 | 4)) {
+         // maybe online profile?
+@@ -66,8 +66,10 @@
+ }
+ 
+ u32 XamUserGetSigninState_entry(u32 user_index) {
+-  if (user_index == 0) {
+-    REXKRNL_DEBUG("[BurstLive2] user 0 -> Xbox LIVE sign-in state 2");
++  // The one profile is signed in to Xbox LIVE on one user index: user 0, or
++  // the controller the title made player 1 (UserProfile::set_signed_in_user).
++  if (REX_KERNEL_STATE()->user_profile()->IsSignedIn(user_index)) {
++    REXKRNL_DEBUG("[BurstLive2] user {} -> Xbox LIVE sign-in state 2", uint32_t(user_index));
+     return 2;
+   }
+   return 0;
+@@ -89,11 +91,11 @@
+   }
+ 
+   std::memset(info, 0, sizeof(X_USER_SIGNIN_INFO));
+-  if (user_index) {
++  const auto& user_profile = REX_KERNEL_STATE()->user_profile();
++  if (!user_profile->IsSignedIn(user_index)) {
+     return X_E_NO_SUCH_USER;
+   }
+ 
+-  const auto& user_profile = REX_KERNEL_STATE()->user_profile();
+   info->xuid = user_profile->xuid();
+   info->signin_state = user_profile->signin_state();
+   rex::string::copy_truncating(info->name, user_profile->name(), rex::countof(info->name));
+@@ -105,11 +107,11 @@
+     return X_E_INVALIDARG;
+   }
+ 
+-  if (user_index) {
++  const auto& user_profile = REX_KERNEL_STATE()->user_profile();
++  if (!user_profile->IsSignedIn(user_index)) {
+     return X_E_NO_SUCH_USER;
+   }
+ 
+-  const auto& user_profile = REX_KERNEL_STATE()->user_profile();
+   const auto& user_name = user_profile->name();
+   rex::string::copy_truncating(buffer, user_name, std::min(buffer_len, uint32_t(16)));
+   return X_E_SUCCESS;
+@@ -120,7 +122,8 @@
+     return X_E_INVALIDARG;
+   }
+ 
+-  if (user_index) {
++  const auto& user_profile = REX_KERNEL_STATE()->user_profile();
++  if (!user_profile->IsSignedIn(user_index)) {
+     return X_E_NO_SUCH_USER;
+   }
+ 
+@@ -128,7 +131,6 @@
+     return X_E_INVALIDARG;
+   }
+ 
+-  const auto& user_profile = REX_KERNEL_STATE()->user_profile();
+   auto user_name = rex::string::to_utf16(user_profile->name());
+   rex::string::copy_and_swap_truncating(buffer, user_name, std::min(buffer_len, uint32_t(16)));
+   return X_E_SUCCESS;
+@@ -208,8 +210,8 @@
+   // Title ID = 0 means us.
+   // 0xfffe07d1 = profile?
+ 
+-  if (!xuids && user_index) {
+-    // Only support user 0.
++  if (!xuids && !REX_KERNEL_STATE()->user_profile()->IsSignedIn(user_index)) {
++    // Only the signed-in user has a profile.
+     if (overlapped) {
+       REX_KERNEL_STATE()->CompleteOverlappedImmediate(
+           REX_KERNEL_MEMORY()->HostToGuestVirtual(overlapped), X_ERROR_NO_SUCH_USER);
+@@ -305,8 +307,8 @@
+     return X_ERROR_INVALID_PARAMETER;
+   }
+ 
+-  if (user_index) {
+-    // Only support user 0.
++  if (!REX_KERNEL_STATE()->user_profile()->IsSignedIn(user_index)) {
++    // Only the signed-in user has a profile.
+     if (overlapped) {
+       REX_KERNEL_STATE()->CompleteOverlappedImmediate(overlapped.guest_address(),
+                                                       X_ERROR_NO_SUCH_USER);
+@@ -376,7 +378,7 @@
+ }
+ 
+ u32 XamUserContentRestrictionGetFlags_entry(u32 user_index, mapped_u32 out_flags) {
+-  if (user_index) {
++  if (!REX_KERNEL_STATE()->user_profile()->IsSignedIn(user_index)) {
+     return X_ERROR_NO_SUCH_USER;
+   }
+ 
+@@ -387,7 +389,7 @@
+ 
+ u32 XamUserContentRestrictionGetRating_entry(u32 user_index, u32 unk1, mapped_u32 out_unk2,
+                                              mapped_u32 out_unk3) {
+-  if (user_index) {
++  if (!REX_KERNEL_STATE()->user_profile()->IsSignedIn(user_index)) {
+     return X_ERROR_NO_SUCH_USER;
+   }
+ 
+@@ -418,7 +420,7 @@
+   if (user_index >= 4) {
+     return X_ERROR_INVALID_PARAMETER;
+   }
+-  if (user_index) {
++  if (!REX_KERNEL_STATE()->user_profile()->IsSignedIn(user_index)) {
+     return X_ERROR_NO_SUCH_USER;
+   }
+   return 6 /* 6 appears to be Gold */;
+@@ -432,8 +434,8 @@
+   if (user_index >= 4) {
+     result = X_ERROR_INVALID_PARAMETER;
+   } else {
+-    if (user_index == 0) {
+-      const auto& user_profile = REX_KERNEL_STATE()->user_profile();
++    const auto& user_profile = REX_KERNEL_STATE()->user_profile();
++    if (user_profile->IsSignedIn(user_index)) {
+       if (user_profile->signin_state() == 0) {
+         result = X_ERROR_NOT_LOGGED_ON;
+       } else {
+@@ -442,7 +444,7 @@
+         result = X_ERROR_SUCCESS;
+       }
+     } else {
+-      // Only support user 0.
++      // Only the signed-in user.
+       result = X_ERROR_NO_SUCH_USER;  // if user is local -> X_ERROR_NOT_LOGGED_ON
+     }
+   }
+@@ -468,8 +470,9 @@
+ 
+   // To fix game modes that display a 4 profile signin UI (even if playing
+   // alone):
+-  // XN_SYS_SIGNINCHANGED
+-  REX_KERNEL_STATE()->BroadcastNotification(0x0000000A, 1);
++  // XN_SYS_SIGNINCHANGED (data = signed-in users mask)
++  REX_KERNEL_STATE()->BroadcastNotification(
++      0x0000000A, 1u << REX_KERNEL_STATE()->user_profile()->signed_in_user());
+   // Games seem to sit and loop until we trigger this notification:
+   // XN_SYS_UI (off)
+   REX_KERNEL_STATE()->BroadcastNotification(0x00000009, 0);
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_video.cpp b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+--- a/src/kernel/xboxkrnl/xboxkrnl_video.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+@@ -27,6 +27,7 @@
+ #include <rex/kernel/xboxkrnl/rtl.h>
+ #include <rex/kernel/xboxkrnl/video.h>
+ #include <rex/logging.h>
++#include <rex/perf/frame_rate.h>
+ #include <rex/hook.h>
+ #include <rex/types.h>
+ #include <rex/runtime.h>
+@@ -538,6 +539,9 @@
+   for (uint32_t i = offset; i < 64; i++) {
+     dwords[i] = xenos::MakePacketType2();
+   }
++
++  // Latency probe (latency_log): the guest's end of a frame.
++  rex::perf::RecordGuestVdSwap();
+ }
+ 
+ void RegisterVideoExports(rex::runtime::ExportResolver* export_resolver,
+diff --git a/src/system/kernel_state.cpp b/src/system/kernel_state.cpp
+--- a/src/system/kernel_state.cpp
++++ b/src/system/kernel_state.cpp
+@@ -41,6 +41,7 @@
+ #include <rex/system/xobject.h>
+ #include <rex/system/xsemaphore.h>
+ #include <rex/system/xthread.h>
++#include <rex/system/xam/user_profile.h>
+ #include <rex/system/xtimer.h>
+ 
+ namespace rex::system {
+@@ -305,12 +306,40 @@
+     achievement_manager_.LoadMetadataFile(*metadata_path);
+   }
+ 
+-  // Set up the unlock save path and restore persisted state.
++  // Set up the unlock save path and restore persisted state: one file per
++  // profile (achievements/<XUID>/<title>.toml), so a title's unlocks belong to
++  // the profile that earned them. A file from before (achievements/<title>.toml,
++  // no profile) is taken over by the first profile that has none yet.
+   const auto user_root = emulator_->user_data_root();
+   if (!user_root.empty()) {
+-    achievement_manager_.SetUnlockSavePath(user_root / "achievements" /
+-                                           fmt::format("{:08X}.toml", title_id()));
++    const auto title_file = fmt::format("{:08X}.toml", title_id());
++    const uint64_t xuid = user_profile_ ? user_profile_->xuid() : 0;
++    std::filesystem::path path = user_root / "achievements" / title_file;
++    if (xuid != 0) {
++      const std::filesystem::path legacy = path;
++      path = user_root / "achievements" / fmt::format("{:016X}", xuid) / title_file;
++      std::error_code ec;
++      if (!std::filesystem::exists(path, ec) && std::filesystem::exists(legacy, ec)) {
++        std::filesystem::create_directories(path.parent_path(), ec);
++        std::filesystem::rename(legacy, path, ec);
++        if (ec) {
++          std::filesystem::copy_file(legacy, path, ec);
++        }
++        REXSYS_INFO("Achievements: moved {} to the profile's {}", legacy.string(), path.string());
++      }
++    }
++    achievement_manager_.SetUnlockSavePath(path);
+     achievement_manager_.LoadUnlockState();
++    REXSYS_INFO("Achievements: {} in the title data, {} unlocked ({})",
++                achievement_manager_.ListAchievements().size(),
++                [&] {
++                  size_t n = 0;
++                  for (const auto& a : achievement_manager_.ListAchievements()) {
++                    n += achievement_manager_.IsUnlocked(a.id) ? 1 : 0;
++                  }
++                  return n;
++                }(),
++                path.string());
+   }
+ }
+ 
+diff --git a/src/system/xam/user_profile.cpp b/src/system/xam/user_profile.cpp
+--- a/src/system/xam/user_profile.cpp
++++ b/src/system/xam/user_profile.cpp
+@@ -95,6 +95,22 @@
+   AddSetting(std::make_unique<BinarySetting>(0x63E83FFD));
+ }
+ 
++void UserProfile::set_signed_in_user(uint32_t user_index) {
++  if (user_index >= 4) {
++    return;
++  }
++  const uint32_t previous = signed_in_user_.exchange(user_index, std::memory_order_relaxed);
++  if (previous != user_index) {
++    REXSYS_INFO("[Signin] profile {} signed in on user {} (was user {})", name_, user_index,
++                previous);
++    // XN_SYS_SIGNINCHANGED (data = signed-in users mask): titles cache who is
++    // signed in and refresh it on this notification, as on a console.
++    if (kernel_state_) {
++      kernel_state_->BroadcastNotification(0x0000000A, 1u << user_index);
++    }
++  }
++}
++
+ void UserProfile::AddSetting(std::unique_ptr<Setting> setting) {
+   Setting* previous_setting = setting.get();
+   std::swap(settings_[setting->setting_id], previous_setting);
+diff --git a/src/ui/CMakeLists.txt b/src/ui/CMakeLists.txt
+--- a/src/ui/CMakeLists.txt
++++ b/src/ui/CMakeLists.txt
+@@ -20,6 +20,7 @@
+     windowed_app.cpp
+     windowed_app_context.cpp
+     windowed_app_context_sdl.cpp
++    ui_watchdog.cpp
+ )
+ 
+ # Optional overlay dialogs
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -14,6 +14,7 @@
+ #include <cctype>
+ #include <utility>
+ 
++#include <rex/ui/ui_watchdog.h>
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
+ #include <rex/graphics/draw_overrides.h>
+@@ -395,9 +396,15 @@
+       // in a way so that the UI won't be stealing all the remaining GPU
+       // resources if it's repainted continuously, and the window system itself
+       // doesn't limit the frame rate.
+-      WaitForUITickFromUIThread();
++      {
++        UIThreadPhase phase("waiting for the display (vertical blank)");
++        WaitForUITickFromUIThread();
++      }
+ 
+-      paint_result = PaintAndPresent(draw_ui);
++      {
++        UIThreadPhase phase("drawing and presenting a frame");
++        paint_result = PaintAndPresent(draw_ui);
++      }
+       if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedOutdated) {
+         // Request another PaintFromUIThread which will try to recover from the
+         // outdated connection in the next frame (not immediately, so the
+@@ -1507,6 +1514,12 @@
+   }
+   std::unique_lock<std::mutex> dxgi_ui_tick_lock(dxgi_ui_tick_mutex_);
+   uint64_t last_vblank_before_wait = dxgi_ui_tick_last_vblank_;
++  // Bounded: the vblank thread may stop ticking without losing its output
++  // (an emulated WaitForVBlank under Wine / Proton that never returns, a
++  // driver stall). The UI thread must never wait for it forever - that is a
++  // frozen, black, "not responding" window. 100 ms is several refreshes even
++  // at 30 Hz, so on a working display this never triggers.
++  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+   while (true) {
+     // Guest output present requests should interrupt the wait as quickly as
+     // possible as they should be fulfilled as early as possible.
+@@ -1524,7 +1537,15 @@
+           std::min(last_vblank_before_wait + uint64_t(1), dxgi_ui_tick_last_vblank_);
+       return;
+     }
+-    dxgi_ui_tick_signal_condition_.wait(dxgi_ui_tick_lock);
++    if (dxgi_ui_tick_signal_condition_.wait_until(dxgi_ui_tick_lock, deadline) ==
++        std::cv_status::timeout) {
++      if (!ui_tick_timeout_logged_) {
++        ui_tick_timeout_logged_ = true;
++        REXLOG_WARN("Presenter: no vertical blank from the display for 100 ms, drawing the UI "
++                    "without waiting for it");
++      }
++      return false;
++    }
+   }
+ #endif  // XE_PLATFORM
+ }
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -9,6 +9,7 @@
+  *              See LICENSE file in the project root for full license text.
+  */
+ 
++#include <rex/ui/ui_watchdog.h>
+ #include <rex/rex_app.h>
+ 
+ #include <atomic>
+@@ -420,6 +421,45 @@
+ 
+ REXCVAR_DEFINE_COMMAND(quick_menu_toggle, rex::ReXApp::ToggleQuickMenuCommand, "Debug",
+                        "Open or close the settings menu (F1)");
++namespace rex {
++namespace {
++// gpu_state: what the GPU (command processor) thread is doing right now - for
++// telling apart a game waiting for itself, the GPU thread waiting for the GPU,
++// and a GPU thread stuck in between when frames stop.
++void GpuStateCommand() {
++  ui::CommandCompletion done = ui::DeferCommandCompletion();
++  perf::GpuThreadState& state = perf::GetGpuThreadState();
++  const uint32_t where = state.where.load(std::memory_order_relaxed);
++  const uint64_t now_ms = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                       std::chrono::steady_clock::now().time_since_epoch())
++                                       .count());
++  const uint64_t since_ms = state.where_since_ms.load(std::memory_order_relaxed);
++  std::string summary = fmt::format(
++      "{} for {} ms | ring read {} write {} | primary buffers {} | guest swaps {} host presents {}",
++      perf::GetGpuThreadWhereName(where), since_ms ? now_ms - since_ms : 0,
++      state.read_ptr.load(std::memory_order_relaxed),
++      state.write_ptr.load(std::memory_order_relaxed),
++      state.primary_buffers.load(std::memory_order_relaxed), perf::GetGuestSwapCount(),
++      perf::GetPresentStats().shown.load(std::memory_order_relaxed));  // Dragon Burst: the frames shown
++  if (where == uint32_t(perf::GpuThreadWhere::kWaitRegMem)) {
++    summary += fmt::format(" | wait {} {:08X} ref {:08X} last value {:08X} info {:X}",
++                           (state.wait_reg_mem_flags.load() & 0x10) ? "memory" : "register",
++                           state.wait_reg_mem_address.load(), state.wait_reg_mem_ref.load(),
++                           state.wait_reg_mem_value.load(), state.wait_reg_mem_flags.load());
++  }
++  if (where == uint32_t(perf::GpuThreadWhere::kFenceWait) ||
++      where == uint32_t(perf::GpuThreadWhere::kQueueOpsWait)) {
++    summary += fmt::format(" | fence await {} completed before the wait {}",
++                           state.fence_await.load(), state.fence_completed.load());
++  }
++  REXLOG_INFO("gpu_state: {}", summary);
++  done(true, summary);
++}
++}  // namespace
++}  // namespace rex
++
++REXCVAR_DEFINE_COMMAND(gpu_state, rex::GpuStateCommand, "Debug",
++                       "Report what the GPU (command processor) thread is doing right now");
+ REXCVAR_DEFINE_COMMAND(hitch_start, rex::HitchStartCommand, "Debug",
+                        "Start recording frame times (stutter test); hitch_stop reports");
+ REXCVAR_DEFINE_COMMAND(hitch_stop, rex::HitchStopCommand, "Debug",
+@@ -682,6 +722,25 @@
+     REXLOG_DEBUG("Loaded config: {}", config_path_.filename().string());
+ 
+   REXLOG_DEBUG("{} starting", GetName());
++#if REX_PLATFORM_WIN32
++  // Under Wine / Proton: which one (for Linux reports).
++  if (HMODULE ntdll = GetModuleHandleW(L"ntdll.dll")) {
++    using GetVersionFn = const char*(__cdecl*)();
++    using GetHostVersionFn = void(__cdecl*)(const char**, const char**);
++    if (auto wine_version =
++            reinterpret_cast<GetVersionFn>(GetProcAddress(ntdll, "wine_get_version"))) {
++      const char* sysname = nullptr;
++      const char* release = nullptr;
++      if (auto host_version = reinterpret_cast<GetHostVersionFn>(
++              GetProcAddress(ntdll, "wine_get_host_version"))) {
++        host_version(&sysname, &release);
++      }
++      const char* proton = std::getenv("PROTON_VERSION");
++      REXLOG_INFO("Running under Wine {} on {} {}{}{}", wine_version(), sysname ? sysname : "?",
++                  release ? release : "?", proton ? ", Proton " : "", proton ? proton : "");
++    }
++  }
++#endif
+   if (!game_data_root_.empty()) {
+     REXLOG_DEBUG("  Game directory: {}", game_data_root_.string());
+   }
+@@ -1031,6 +1090,7 @@
+           });
+     }
+ 
++    ui::UIThreadPhase phase("starting the game");
+     OnPreLaunchModule();
+ 
+     auto main_thread = runtime_->PrepareModuleLaunch();
+@@ -1045,6 +1105,7 @@
+       uint32_t title_id = runtime_->kernel_state()->title_id();
+       if (title_id != 0) {
+         REXLOG_INFO("Initializing shader storage for title {:08X}...", title_id);
++        ui::UIThreadPhase storage_phase("loading the shader storage (cache)");
+         graphics_system->InitializeShaderStorage(runtime_->cache_root(), title_id, true);
+       }
+     }
+@@ -1067,6 +1128,7 @@
+   return [this](PathConfig paths) {
+     if (shutting_down_.load(std::memory_order_acquire))
+       return;
++    ui::UIThreadPhase phase("setting up the game (runtime)");
+     if (!ConstructRuntime(std::move(paths))) {
+       app_context().QuitFromUIThread();
+       return;
+diff --git a/src/ui/windowed_app_context_sdl.cpp b/src/ui/windowed_app_context_sdl.cpp
+--- a/src/ui/windowed_app_context_sdl.cpp
++++ b/src/ui/windowed_app_context_sdl.cpp
+@@ -21,6 +21,7 @@
+ #include <rex/logging.h>
+ #include <rex/platform.h>
+ #include <rex/ui/flags.h>
++#include <rex/ui/ui_watchdog.h>
+ #include <rex/ui/window_sdl.h>
+ 
+ namespace rex::ui {
+@@ -85,19 +86,23 @@
+ }
+ 
+ int SDLWindowedAppContext::RunMainMessageLoop() {
++  StartUIWatchdog();
+   while (!HasQuitFromUIThread()) {
+     SDL_Event event;
+     if (!SDL_WaitEvent(&event)) {
+       REXLOG_ERROR("SDL_WaitEvent failed: {}", SDL_GetError());
+       return EXIT_FAILURE;
+     }
++    UIThreadBusyBegin();
+     ProcessEvent(event);
++    UIThreadBusyEnd();
+   }
+   return EXIT_SUCCESS;
+ }
+ 
+ void SDLWindowedAppContext::ProcessEvent(SDL_Event& event) {
+   if (event.type == wakeup_event_type_) {
++    UIThreadPhase phase("running UI thread tasks");
+     ExecutePendingFunctionsFromUIThread();
+     return;
+   }
+@@ -119,6 +124,7 @@
+       }
+     }
+     if (WindowSDL* window = GetWindow(event.user.windowID)) {
++      UIThreadPhase phase("painting the window");
+       window->HandlePaintEvent();
+     }
+     return;
+diff --git a/src/ui/windowed_app_main_sdl.cpp b/src/ui/windowed_app_main_sdl.cpp
+--- a/src/ui/windowed_app_main_sdl.cpp
++++ b/src/ui/windowed_app_main_sdl.cpp
+@@ -19,6 +19,7 @@
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
+ #include <rex/platform.h>
++#include <rex/ui/ui_watchdog.h>
+ #include <rex/ui/windowed_app.h>
+ #include <rex/ui/windowed_app_context_sdl.h>
+ 
+@@ -77,7 +78,17 @@
+     }
+     app->SetParsedArguments(std::move(parsed));
+ 
+-    result = app->OnInitialize() ? app_context.RunMainMessageLoop() : EXIT_FAILURE;
++    // The start (paths, window, graphics, maybe the game) runs before the loop:
++    // watched too.
++    rex::ui::StartUIWatchdog();
++    rex::ui::UIThreadBusyBegin();
++    bool initialized;
++    {
++      rex::ui::UIThreadPhase phase("starting up");
++      initialized = app->OnInitialize();
++    }
++    rex::ui::UIThreadBusyEnd();
++    result = initialized ? app_context.RunMainMessageLoop() : EXIT_FAILURE;
+ 
+     app->InvokeOnDestroy();
+   }
+diff --git a/src/graphics/pipeline/texture/replacement_alpha.h b/src/graphics/pipeline/texture/replacement_alpha.h
+new file mode 100644
+--- /dev/null
++++ b/src/graphics/pipeline/texture/replacement_alpha.h
+@@ -0,0 +1,480 @@
++/**
++ * @file        graphics/pipeline/texture/replacement_alpha.h
++ *
++ * @brief       Image work of the texture replacement path, on RGBA8 images:
++ *              telling a replacement with premultiplied alpha from a
++ *              straight one by comparing it with the game's own texture,
++ *              turning it back into straight alpha, and downscaling images
++ *              too big for the GPU.
++ *
++ *              The game blends its textures as straight alpha, and so do the
++ *              originals a pack is made from. Some upscalers and exporters
++ *              write colour premultiplied by alpha instead (and black under
++ *              the transparent texels): drawn as they are, every soft edge,
++ *              glow, cloud and see-through layer comes out darker
++ *              (colour x alpha x alpha), often nearly black.
++ *
++ *              Header-only and independent of the rest of the SDK, so an
++ *              offline test can build it on its own.
++ */
++#pragma once
++
++#include <algorithm>
++#include <cmath>
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <thread>
++#include <vector>
++
++namespace rex::graphics::replacement_image {
++
++// Runs body(begin, end) over the rows [0, count), split across a few threads
++// when the image is big (a 4096x4096 replacement decodes and mips about 8x
++// faster on 8 threads, which is what the frame waits for).
++template <typename Body>
++inline void ParallelRows(uint32_t count, uint64_t pixels, Body&& body) {
++  const uint32_t threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u);
++  if (threads <= 1 || pixels < uint64_t(512) * 512 || count < threads * 4) {
++    body(0u, count);
++    return;
++  }
++  const uint32_t step = (count + threads - 1) / threads;
++  std::vector<std::thread> workers;
++  for (uint32_t begin = step; begin < count; begin += step) {
++    const uint32_t end = std::min(count, begin + step);
++    workers.emplace_back([&body, begin, end] { body(begin, end); });
++  }
++  body(0u, std::min(count, step));
++  for (std::thread& worker : workers) {
++    worker.join();
++  }
++}
++
++// Alpha (0-255) of the partly transparent texels the colours are compared on.
++constexpr uint32_t kSoftAlphaMin = 16;
++constexpr uint32_t kSoftAlphaMax = 239;
++// Original texels at or below this alpha count as fully transparent.
++constexpr uint32_t kTransparentAlphaMax = 4;
++// Converting: colour / alpha from kBlendAlphaHigh up, the original's colour
++// below kBlendAlphaLow (colour x alpha keeps too few bits there - and none
++// at all under alpha 0), a smooth blend in between.
++constexpr float kBlendAlphaLow = 16.0f;
++constexpr float kBlendAlphaHigh = 64.0f;
++// Alpha this low where the original is fully transparent is noise of the
++// upscaler (a faint black veil over what's behind): made 0.
++constexpr uint32_t kVeilAlphaMax = 6;
++// Straight images with the colour under the transparent texels lost: the
++// texels up to this alpha get the original's colour.
++constexpr uint32_t kLostColourAlphaMax = 4;
++
++enum class AlphaKind : uint8_t {
++  kUnknown,
++  kStraight,
++  // Colour = straight colour x alpha.
++  kPremultiplied,
++  // Straight, but black under the transparent texels where the original has
++  // colour (bilinear filtering pulls that black into the edges).
++  kLostColour,
++};
++
++struct AlphaCheck {
++  AlphaKind kind = AlphaKind::kUnknown;
++  // Decided by the texels the original has fully transparent (the original
++  // has too few partly transparent ones).
++  bool cutout = false;
++  // Partly transparent texels: mean colour difference from the original as
++  // straight alpha (a) and as premultiplied (b). Cut-outs: the mean colour
++  // under the transparent texels of the original (a) and of the replacement
++  // (b).
++  float error_a = 0.0f;
++  float error_b = 0.0f;
++};
++
++inline bool HasTransparency(const uint8_t* rgba, uint64_t texel_count) {
++  for (uint64_t i = 0; i < texel_count; ++i) {
++    if (rgba[i * 4 + 3] != 255) {
++      return true;
++    }
++  }
++  return false;
++}
++
++// The share of the partly transparent texels whose colour is brighter than
++// their alpha (max(r, g, b) > a + 2): none in a premultiplied image, most in a
++// straight one (dark straight images pass too, so this alone doesn't decide).
++// -1 without such texels. Big images are sampled every few rows.
++inline float PremultipliedViolation(const uint8_t* rgba, uint32_t width, uint32_t height,
++                                    uint64_t* soft_count_out = nullptr) {
++  const uint32_t row_step =
++      std::max(uint32_t(1), uint32_t(uint64_t(width) * height / (uint64_t(4) << 20)));
++  uint64_t soft = 0, bright = 0;
++  for (uint32_t y = 0; y < height; y += row_step) {
++    const uint8_t* texel = rgba + size_t(y) * width * 4;
++    for (uint32_t x = 0; x < width; ++x, texel += 4) {
++      if (texel[3] < kSoftAlphaMin || texel[3] > kSoftAlphaMax) {
++        continue;
++      }
++      ++soft;
++      if (uint32_t(std::max(std::max(texel[0], texel[1]), texel[2])) > uint32_t(texel[3]) + 2) {
++        ++bright;
++      }
++    }
++  }
++  if (soft_count_out) {
++    *soft_count_out = soft;
++  }
++  return soft ? float(double(bright) / double(soft)) : -1.0f;
++}
++
++// Compares a replacement with the original texture it replaces (both RGBA8,
++// the original at its own size): the replacement is averaged over the area
++// of each original texel. Premultiplied when its colour matches the
++// original's colour x alpha clearly better than the original's colour on the
++// partly transparent texels; for cut-outs, when it's black where the
++// original has colour under its transparent texels (kLostColour instead when
++// its own partly transparent texels are straight).
++inline AlphaCheck ClassifyAgainstOriginal(const uint8_t* replacement, uint32_t width,
++                                          uint32_t height, const uint8_t* original,
++                                          uint32_t original_width, uint32_t original_height) {
++  AlphaCheck check;
++  if (!width || !height || !original_width || !original_height) {
++    return check;
++  }
++  // Up to about 256K original texels.
++  uint32_t step = 1;
++  while (step < std::max(original_width, original_height) &&
++         uint64_t(original_width / step) * (original_height / step) > (uint64_t(256) << 10)) {
++    ++step;
++  }
++  double soft_count = 0, straight_error = 0, premultiplied_error = 0, separation = 0;
++  double zero_count = 0, zero_original = 0, zero_replacement = 0;
++  for (uint32_t oy = 0; oy < original_height; oy += step) {
++    const uint32_t y0 = uint32_t(uint64_t(oy) * height / original_height);
++    const uint32_t y1 =
++        std::min(height, std::max(uint32_t(uint64_t(oy + 1) * height / original_height), y0 + 1));
++    for (uint32_t ox = 0; ox < original_width; ox += step) {
++      const uint8_t* o = original + (size_t(oy) * original_width + ox) * 4;
++      const uint32_t oa = o[3];
++      const bool soft = oa >= kSoftAlphaMin && oa <= kSoftAlphaMax;
++      const bool zero = oa <= kTransparentAlphaMax;
++      if (!soft && !zero) {
++        continue;
++      }
++      const uint32_t x0 = uint32_t(uint64_t(ox) * width / original_width);
++      const uint32_t x1 =
++          std::min(width, std::max(uint32_t(uint64_t(ox + 1) * width / original_width), x0 + 1));
++      uint64_t sum[3] = {};
++      for (uint32_t y = y0; y < y1; ++y) {
++        const uint8_t* r = replacement + (size_t(y) * width + x0) * 4;
++        for (uint32_t x = x0; x < x1; ++x, r += 4) {
++          sum[0] += r[0];
++          sum[1] += r[1];
++          sum[2] += r[2];
++        }
++      }
++      const double area = double(x1 - x0) * double(y1 - y0);
++      if (soft) {
++        const double a = oa / 255.0;
++        for (uint32_t c = 0; c < 3; ++c) {
++          const double r = sum[c] / area;
++          straight_error += std::abs(r - o[c]);
++          premultiplied_error += std::abs(r - o[c] * a);
++          separation += o[c] * (1.0 - a);
++        }
++        soft_count += 1;
++      } else {
++        for (uint32_t c = 0; c < 3; ++c) {
++          zero_original += o[c];
++          zero_replacement += sum[c] / area;
++        }
++        zero_count += 1;
++      }
++    }
++  }
++  if (soft_count >= 64) {
++    check.error_a = float(straight_error / (soft_count * 3));
++    check.error_b = float(premultiplied_error / (soft_count * 3));
++    // Only when the two readings differ enough to tell (alpha near 1 or dark
++    // colours make them the same).
++    if (separation / (soft_count * 3) >= 6.0) {
++      if (premultiplied_error < 0.6 * straight_error) {
++        check.kind = AlphaKind::kPremultiplied;
++      } else if (straight_error < 0.6 * premultiplied_error) {
++        check.kind = AlphaKind::kStraight;
++      }
++      return check;
++    }
++  }
++  if (zero_count >= 64) {
++    const double original_mean = zero_original / (zero_count * 3);
++    const double replacement_mean = zero_replacement / (zero_count * 3);
++    check.cutout = true;
++    check.error_a = float(original_mean);
++    check.error_b = float(replacement_mean);
++    if (original_mean >= 12.0) {
++      if (replacement_mean < std::min(12.0, 0.15 * original_mean)) {
++        uint64_t soft_texels = 0;
++        const float bright = PremultipliedViolation(replacement, width, height, &soft_texels);
++        check.kind = soft_texels >= 64 && bright >= 0.02f ? AlphaKind::kLostColour
++                                                           : AlphaKind::kPremultiplied;
++      } else {
++        check.kind = AlphaKind::kStraight;
++      }
++    }
++  }
++  return check;
++}
++
++// Bilinear sampling positions of an axis of `in_size` texels stretched over
++// `out_size` (texel centres aligned, edges clamped).
++struct BilinearTap {
++  uint32_t i0, i1;
++  float f;
++};
++inline std::vector<BilinearTap> MakeBilinearTaps(uint32_t out_size, uint32_t in_size) {
++  std::vector<BilinearTap> taps(out_size);
++  const float scale = float(in_size) / float(out_size);
++  for (uint32_t o = 0; o < out_size; ++o) {
++    float s = (float(o) + 0.5f) * scale - 0.5f;
++    s = std::clamp(s, 0.0f, float(in_size - 1));
++    const uint32_t i0 = std::min(uint32_t(s), in_size - 1);
++    taps[o] = {i0, std::min(i0 + 1, in_size - 1), s - float(i0)};
++  }
++  return taps;
++}
++
++// Turns a replacement into straight alpha in place:
++//   kPremultiplied: colour / alpha, the original's colour (bilinear) under low
++//     alpha, blended in between;
++//   kLostColour: the original's colour only under (nearly) fully transparent
++//     texels.
++// Alpha up to kVeilAlphaMax where the original is fully transparent becomes
++// 0. Without the original (null), a premultiplied image's low-alpha texels
++// are filled from the alpha-weighted colour around them instead.
++inline void RestoreStraightAlpha(uint8_t* rgba, uint32_t width, uint32_t height, AlphaKind kind,
++                                 const uint8_t* original, uint32_t original_width,
++                                 uint32_t original_height) {
++  if (kind != AlphaKind::kPremultiplied && kind != AlphaKind::kLostColour) {
++    return;
++  }
++  if (!original && kind == AlphaKind::kLostColour) {
++    return;
++  }
++  std::vector<BilinearTap> taps_x, taps_y;
++  if (original) {
++    taps_x = MakeBilinearTaps(width, original_width);
++    taps_y = MakeBilinearTaps(height, original_height);
++  }
++
++  // Without the original: the colour around low-alpha texels - levels of the
++  // average premultiplied colour and alpha, each half the size of the one
++  // before (level 1 first).
++  struct Level {
++    uint32_t width, height;
++    std::vector<float> texels;  // r, g, b (premultiplied), a - 0-255
++  };
++  std::vector<Level> levels;
++  if (!original) {
++    uint32_t source_width = width, source_height = height;
++    while (source_width > 1 || source_height > 1) {
++      Level level;
++      level.width = std::max(source_width >> 1, uint32_t(1));
++      level.height = std::max(source_height >> 1, uint32_t(1));
++      level.texels.resize(size_t(level.width) * level.height * 4);
++      const Level* previous = levels.empty() ? nullptr : &levels.back();
++      for (uint32_t y = 0; y < level.height; ++y) {
++        for (uint32_t x = 0; x < level.width; ++x) {
++          float sum[4] = {};
++          for (uint32_t dy = 0; dy < 2; ++dy) {
++            for (uint32_t dx = 0; dx < 2; ++dx) {
++              const uint32_t sx = std::min(x * 2 + dx, source_width - 1);
++              const uint32_t sy = std::min(y * 2 + dy, source_height - 1);
++              if (previous) {
++                const float* s = &previous->texels[(size_t(sy) * source_width + sx) * 4];
++                for (uint32_t c = 0; c < 4; ++c) {
++                  sum[c] += s[c];
++                }
++              } else {
++                const uint8_t* s = rgba + (size_t(sy) * width + sx) * 4;
++                for (uint32_t c = 0; c < 4; ++c) {
++                  sum[c] += s[c];
++                }
++              }
++            }
++          }
++          float* d = &level.texels[(size_t(y) * level.width + x) * 4];
++          for (uint32_t c = 0; c < 4; ++c) {
++            d[c] = sum[c] * 0.25f;
++          }
++        }
++      }
++      source_width = level.width;
++      source_height = level.height;
++      levels.push_back(std::move(level));
++    }
++  }
++
++  ParallelRows(height, uint64_t(width) * height, [&](uint32_t y_begin, uint32_t y_end) {
++    for (uint32_t y = y_begin; y < y_end; ++y) {
++      uint8_t* texel = rgba + size_t(y) * width * 4;
++      for (uint32_t x = 0; x < width; ++x, texel += 4) {
++        const uint32_t a = texel[3];
++        float straight[3];
++        float weight;
++        if (kind == AlphaKind::kLostColour) {
++          if (a > kLostColourAlphaMax && a > kVeilAlphaMax) {
++            continue;
++          }
++          for (uint32_t c = 0; c < 3; ++c) {
++            straight[c] = float(texel[c]);
++          }
++          weight = a > kLostColourAlphaMax ? 1.0f : 0.0f;
++        } else {
++          for (uint32_t c = 0; c < 3; ++c) {
++            straight[c] = a ? std::min(255.0f, float(texel[c]) * 255.0f / float(a)) : 0.0f;
++          }
++          const float t =
++              std::clamp((float(a) - kBlendAlphaLow) / (kBlendAlphaHigh - kBlendAlphaLow), 0.0f,
++                         1.0f);
++          weight = t * t * (3.0f - 2.0f * t);
++        }
++        float fill[3] = {0.0f, 0.0f, 0.0f};
++        bool transparent_in_original = false;
++        if (original) {
++          if (weight < 1.0f || a <= kVeilAlphaMax) {
++            const BilinearTap& tx = taps_x[x];
++            const BilinearTap& ty = taps_y[y];
++            const uint8_t* o00 = original + (size_t(ty.i0) * original_width + tx.i0) * 4;
++            const uint8_t* o01 = original + (size_t(ty.i0) * original_width + tx.i1) * 4;
++            const uint8_t* o10 = original + (size_t(ty.i1) * original_width + tx.i0) * 4;
++            const uint8_t* o11 = original + (size_t(ty.i1) * original_width + tx.i1) * 4;
++            float sampled[4];
++            for (uint32_t c = 0; c < 4; ++c) {
++              const float top = float(o00[c]) + (float(o01[c]) - float(o00[c])) * tx.f;
++              const float bottom = float(o10[c]) + (float(o11[c]) - float(o10[c])) * tx.f;
++              sampled[c] = top + (bottom - top) * ty.f;
++            }
++            for (uint32_t c = 0; c < 3; ++c) {
++              fill[c] = sampled[c];
++            }
++            transparent_in_original = sampled[3] < 0.5f;
++          }
++        } else if (weight < 1.0f) {
++          for (const Level& level : levels) {
++            const uint32_t shift = uint32_t(&level - levels.data()) + 1;
++            const uint32_t lx = std::min(x >> shift, level.width - 1);
++            const uint32_t ly = std::min(y >> shift, level.height - 1);
++            const float* l = &level.texels[(size_t(ly) * level.width + lx) * 4];
++            if (l[3] >= 8.0f || &level == &levels.back()) {
++              if (l[3] > 0.0f) {
++                for (uint32_t c = 0; c < 3; ++c) {
++                  fill[c] = std::min(255.0f, l[c] * 255.0f / l[3]);
++                }
++              }
++              break;
++            }
++          }
++        }
++        for (uint32_t c = 0; c < 3; ++c) {
++          const float value = straight[c] * weight + fill[c] * (1.0f - weight);
++          texel[c] = uint8_t(std::clamp(value + 0.5f, 0.0f, 255.0f));
++        }
++        if (transparent_in_original && a <= kVeilAlphaMax) {
++          texel[3] = 0;
++        }
++      }
++    }
++  });
++}
++
++// The size an image gets when its longer side is fitted to max_extent
++// (aspect ratio kept); unchanged when it fits.
++inline void FitExtent(uint32_t& width, uint32_t& height, uint32_t max_extent) {
++  if (!max_extent || (width <= max_extent && height <= max_extent)) {
++    return;
++  }
++  if (width >= height) {
++    height = std::max(uint32_t(1),
++                      uint32_t((uint64_t(height) * max_extent + width / 2) / width));
++    width = max_extent;
++  } else {
++    width = std::max(uint32_t(1),
++                     uint32_t((uint64_t(width) * max_extent + height / 2) / height));
++    height = max_extent;
++  }
++}
++
++// Area-average downscale of an RGBA8 image (every source texel weighted by
++// how much of it each destination texel covers), colour weighted by alpha so
++// transparent texels don't darken the edges - like the mips. Exact for whole
++// ratios (a 2x reduction is the 2x2 box of the mips).
++inline std::vector<uint8_t> DownscaleArea(const uint8_t* rgba, uint32_t width, uint32_t height,
++                                          uint32_t new_width, uint32_t new_height) {
++  struct Tap {
++    uint32_t index;
++    float weight;
++  };
++  auto make_taps = [](uint32_t out_size, uint32_t in_size, std::vector<uint32_t>& first,
++                      std::vector<Tap>& taps) {
++    first.assign(out_size + 1, 0);
++    taps.clear();
++    const double scale = double(in_size) / double(out_size);
++    for (uint32_t o = 0; o < out_size; ++o) {
++      first[o] = uint32_t(taps.size());
++      const double start = o * scale;
++      const double end = std::min(double(in_size), (o + 1) * scale);
++      for (uint32_t i = uint32_t(start); i < in_size && double(i) < end; ++i) {
++        const double overlap = std::min(end, double(i) + 1.0) - std::max(start, double(i));
++        if (overlap > 0.0) {
++          taps.push_back({i, float(overlap / (end - start))});
++        }
++      }
++    }
++    first[out_size] = uint32_t(taps.size());
++  };
++  std::vector<uint32_t> first_x, first_y;
++  std::vector<Tap> taps_x, taps_y;
++  make_taps(new_width, width, first_x, taps_x);
++  make_taps(new_height, height, first_y, taps_y);
++
++  std::vector<uint8_t> result(size_t(new_width) * new_height * 4);
++  ParallelRows(new_height, uint64_t(width) * height, [&](uint32_t y_begin, uint32_t y_end) {
++    // Per destination texel: colour x alpha, alpha, plain colour.
++    std::vector<float> sums(size_t(new_width) * 7);
++    for (uint32_t oy = y_begin; oy < y_end; ++oy) {
++      std::fill(sums.begin(), sums.end(), 0.0f);
++      for (uint32_t ty = first_y[oy]; ty < first_y[oy + 1]; ++ty) {
++        const uint8_t* row = rgba + size_t(taps_y[ty].index) * width * 4;
++        const float wy = taps_y[ty].weight;
++        for (uint32_t ox = 0; ox < new_width; ++ox) {
++          float* s = &sums[size_t(ox) * 7];
++          for (uint32_t tx = first_x[ox]; tx < first_x[ox + 1]; ++tx) {
++            const uint8_t* texel = row + size_t(taps_x[tx].index) * 4;
++            const float w = wy * taps_x[tx].weight;
++            const float wa = w * texel[3];
++            s[0] += wa * texel[0];
++            s[1] += wa * texel[1];
++            s[2] += wa * texel[2];
++            s[3] += wa;
++            s[4] += w * texel[0];
++            s[5] += w * texel[1];
++            s[6] += w * texel[2];
++          }
++        }
++      }
++      uint8_t* out = result.data() + size_t(oy) * new_width * 4;
++      for (uint32_t ox = 0; ox < new_width; ++ox, out += 4) {
++        const float* s = &sums[size_t(ox) * 7];
++        for (uint32_t c = 0; c < 3; ++c) {
++          const float value = s[3] > 0.001f ? s[c] / s[3] : s[4 + c];
++          out[c] = uint8_t(std::clamp(value + 0.5f, 0.0f, 255.0f));
++        }
++        out[3] = uint8_t(std::clamp(s[3] + 0.5f, 0.0f, 255.0f));
++      }
++    }
++  });
++  return result;
++}
++
++}  // namespace rex::graphics::replacement_image
+diff --git a/include/rex/ui/ui_watchdog.h b/include/rex/ui/ui_watchdog.h
+new file mode 100644
+--- /dev/null
++++ b/include/rex/ui/ui_watchdog.h
+@@ -0,0 +1,40 @@
++/**
++ * @file        rex/ui/ui_watchdog.h
++ * @brief       UI thread watchdog: logs (and flushes the log) when the UI
++ *              thread is stuck in one event for seconds, naming what it was
++ *              doing - so a frozen, "not responding" window leaves a trace in
++ *              the log even when the user has to kill the process.
++ *
++ * @license     BSD 3-Clause License
++ *              See LICENSE file in the project root for full license text.
++ */
++
++#pragma once
++
++namespace rex::ui {
++
++// What the UI thread is doing now (a string literal, or nullptr = nothing in
++// particular). Only from the UI thread. Prefer UIThreadPhase.
++const char* SetUIThreadPhase(const char* phase);
++
++// The UI thread entered / left the handling of one event (the main loop).
++void UIThreadBusyBegin();
++void UIThreadBusyEnd();
++
++// Starts the watchdog thread once (ui_watchdog cvar).
++void StartUIWatchdog();
++
++// Names a stretch of UI thread work for the watchdog, restoring the previous
++// name at the end of the scope.
++class UIThreadPhase {
++ public:
++  explicit UIThreadPhase(const char* phase) : previous_(SetUIThreadPhase(phase)) {}
++  ~UIThreadPhase() { SetUIThreadPhase(previous_); }
++  UIThreadPhase(const UIThreadPhase&) = delete;
++  UIThreadPhase& operator=(const UIThreadPhase&) = delete;
++
++ private:
++  const char* previous_;
++};
++
++}  // namespace rex::ui
+diff --git a/src/ui/ui_watchdog.cpp b/src/ui/ui_watchdog.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/ui/ui_watchdog.cpp
+@@ -0,0 +1,100 @@
++/**
++ * @file        ui/ui_watchdog.cpp
++ * @brief       UI thread watchdog (see rex/ui/ui_watchdog.h).
++ *
++ * @license     BSD 3-Clause License
++ *              See LICENSE file in the project root for full license text.
++ */
++
++#include <rex/ui/ui_watchdog.h>
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <mutex>
++#include <thread>
++
++#include <rex/cvar.h>
++#include <rex/logging.h>
++
++REXCVAR_DEFINE_BOOL(ui_watchdog, true, "UI",
++                    "Log when the window stops answering for seconds (what it was doing)");
++
++namespace rex::ui {
++
++namespace {
++
++std::atomic<const char*> g_phase{nullptr};
++// Steady-clock ms when the UI thread started the event it is handling now, 0
++// while it waits for events (idle).
++std::atomic<int64_t> g_busy_since_ms{0};
++
++int64_t NowMs() {
++  return std::chrono::duration_cast<std::chrono::milliseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
++void WatchdogLoop() {
++  constexpr int64_t kFirstReportMs = 5000;
++  int64_t reported_since = 0;  // the stall reported last (its start)
++  int64_t next_report_ms = 0;
++  for (;;) {
++    std::this_thread::sleep_for(std::chrono::milliseconds(500));
++    const int64_t since = g_busy_since_ms.load(std::memory_order_acquire);
++    const int64_t now = NowMs();
++    if (since == 0 || since != reported_since) {
++      if (reported_since != 0) {
++        REXLOG_WARN("UI watchdog: the window answers again");
++        rex::FlushLogging();
++        reported_since = 0;
++      }
++      if (since == 0 || now - since < kFirstReportMs) {
++        continue;
++      }
++    }
++    if (reported_since == 0) {
++      reported_since = since;
++      next_report_ms = since + kFirstReportMs;
++    }
++    if (now < next_report_ms) {
++      continue;
++    }
++    const char* phase = g_phase.load(std::memory_order_acquire);
++    REXLOG_WARN("UI watchdog: the window hasn't answered for {} s (busy: {})",
++                (now - since) / 1000, phase ? phase : "unknown");
++    rex::FlushLogging();
++    // 5 s, 15 s, 30 s, 60 s, then every minute.
++    const int64_t stalled = now - since;
++    next_report_ms = since + (stalled < 15000   ? 15000
++                              : stalled < 30000 ? 30000
++                                                : (stalled / 60000 + 1) * 60000);
++  }
++}
++
++}  // namespace
++
++const char* SetUIThreadPhase(const char* phase) {
++  return g_phase.exchange(phase, std::memory_order_acq_rel);
++}
++
++void UIThreadBusyBegin() {
++  g_busy_since_ms.store(NowMs(), std::memory_order_release);
++}
++
++void UIThreadBusyEnd() {
++  g_busy_since_ms.store(0, std::memory_order_release);
++}
++
++void StartUIWatchdog() {
++  static std::once_flag once;
++  std::call_once(once, [] {
++    if (!REXCVAR_GET(ui_watchdog)) {
++      return;
++    }
++    std::thread(WatchdogLoop).detach();
++  });
++}
++
++}  // namespace rex::ui
++

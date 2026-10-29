@@ -32,6 +32,7 @@
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
 #include <rex/perf/frame_rate.h>
+#include <rex/ui/ui_watchdog.h>
 #include <rex/runtime.h>
 #include <rex/ui/overlay/quick_menu.h>
 
@@ -200,6 +201,7 @@ Java_com_dfdx047_dragonburst_game_NativeGameState_nativeSetBackground(JNIEnv*, j
   }
   g_dragonburst_pause_cv.notify_all();
   if (dragonburst_renut_background) dragonburst_renut_background(g_background);
+  rex::ui::SetUIWatchdogBackground(g_background);  // o SDL segura a thread da UI na pausa: nao e um travamento
   const uint64_t ticks = g_dragonburst_ticks.load(std::memory_order_relaxed);
   if (g_background) {
     g_background_since = std::chrono::steady_clock::now();
