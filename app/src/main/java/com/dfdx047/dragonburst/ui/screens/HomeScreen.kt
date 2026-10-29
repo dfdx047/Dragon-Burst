@@ -100,7 +100,9 @@ fun HomeScreen(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
         // Palco animado: logotipo, estado e JOGAR.
         val (statusText, level) = when {
             install == null -> stringResource(R.string.status_checking) to Level.INFO
-            install.xex?.status == FileStatus.DIFFERENT -> stringResource(R.string.status_wrong_region) to Level.ERROR
+            // O import so aceita o default.xex USA: outro conteudo ou tamanho depois disso e um ficheiro danificado.
+            install.xex?.status == FileStatus.DIFFERENT || install.xex?.status == FileStatus.WRONG_SIZE ->
+                stringResource(R.string.status_xex_damaged) to Level.ERROR
             install.playable -> stringResource(R.string.status_ready) to Level.OK
             install.installed -> stringResource(R.string.status_incomplete) to Level.WARN
             else -> stringResource(R.string.status_not_installed) to Level.WARN
@@ -196,7 +198,7 @@ fun HomeScreen(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
                             FileStatus.OK -> stringResource(R.string.file_ok) to Level.OK
                             FileStatus.MISSING -> stringResource(if (c.required) R.string.file_missing_required else R.string.file_missing_optional) to
                                 (if (c.required) Level.ERROR else Level.INFO)
-                            FileStatus.DIFFERENT -> stringResource(R.string.file_wrong_region) to Level.ERROR
+                            FileStatus.DIFFERENT -> stringResource(R.string.file_damaged) to Level.ERROR
                             FileStatus.WRONG_SIZE -> stringResource(R.string.file_wrong_size) to Level.ERROR
                         }
                         StatusLine("${c.name} — $label", lvl)

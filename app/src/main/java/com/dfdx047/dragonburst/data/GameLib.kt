@@ -71,6 +71,7 @@ object GameLib {
 
         val out = file(context)
         val part = File(out.parentFile, out.name + ".part")
+        val started = System.currentTimeMillis()
         stamp(context).delete()
         try {
             context.assets.open(ASSET).use { raw ->
@@ -107,7 +108,15 @@ object GameLib {
         } finally {
             part.delete()
         }
-        android.util.Log.i("DragonBurst", "import: libgame.so pronto (${out.length() / (1 shl 20)} MB, id ${m.id}, title ${m.titleId})")
+        val line = "import: libgame.so pronto (${out.length() / (1 shl 20)} MB, id ${m.id}, title ${m.titleId}, " +
+            "${System.currentTimeMillis() - started} ms)"
+        android.util.Log.i("DragonBurst", line)
+        // Tambem em logs/update.log (vai no Exportar logs): quando o APK trouxe outro jogo e ele foi refeito.
+        try {
+            File(AppPaths.logsDir.apply { mkdirs() }, "update.log")
+                .appendText("${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date())} $line\n")
+        } catch (_: Exception) {
+        }
     }
 
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }

@@ -38,6 +38,7 @@
     <string name="file_missing_required">missing (required)</string>
     <string name="file_missing_optional">missing (optional)</string>
     <string name="file_wrong_size">wrong size</string>
+    <string name="file_damaged">content differs from the original</string>
     <string name="launch_options_title">Launch</string>
     <string name="orientation">Game orientation</string>
     <string name="orientation_landscape">Landscape</string>
@@ -63,6 +64,7 @@
     <string name="msg_verify_ok">The game files are complete.</string>
     <string name="msg_verify_problems">Some files are missing or don\'t match. See the list.</string>
     <string name="msg_not_installed">Import the game first (Home tab).</string>
+    <string name="msg_xex_damaged">The imported default.xex is damaged (%1$s). Import the game again (Home tab, the .iso or the folder); your saves and options are kept.</string>
     <string name="msg_shortcut_requested">Shortcut requested: confirm it on the home screen.</string>
     <string name="msg_shortcut_unsupported">Your launcher does not support pinned shortcuts.</string>
     <string name="err_import_no_xex">No default.xex found (in the folder or on the disc).</string>
@@ -310,8 +312,7 @@
     <string name="import_folder">Import folder</string>
     <string name="busy_reading_disc">Reading the disc</string>
     <string name="busy_installing_textures">Installing texture pack</string>
-    <string name="status_wrong_region">Not the USA version: this port needs the NTSC-U executable</string>
-    <string name="file_wrong_region">other version (only USA is supported)</string>
+    <string name="status_xex_damaged">The default.xex is damaged: import the game again</string>
     <string name="err_import_no_data">The LONG2DATA folder was not found next to default.xex (%1$s).</string>
     <string name="err_import_region">This is not the USA (NTSC-U) version of Burst Limit (%1$s). The port is recompiled from the USA executable.</string>
     <string name="err_import_not_disc">This file is not an Xbox 360 disc image (%1$s). Use a full .iso (XGD2), not a GOD/XEX package.</string>
@@ -545,7 +546,6 @@
     <string name="perf_renderer_now_renut">Now: Renut. Changes apply at the next start.</string>
     <string name="perf_renderer_now_xenia">Now: Xenia. Changes apply at the next start.</string>
     <string name="perf_resolution_renut">Renut draws any of these heights, 1080p included, and changes it in the game menu without restarting.</string>
-</resources>
     <string name="renut_crash_title">The game closed</string>
     <string name="renut_crash_text">The game closed. Send us the logs so we can fix it: Export logs saves them to Download/, and the issues page is where to post them.</string>
     <string name="renut_crash_reason">The driver lacks what the Renut needs: %1$s.</string>
@@ -554,3 +554,4 @@
     <string name="renut_crash_close">Close</string>
     <string name="renut_crash_use_xenia">Use Xenia</string>
     <string name="renut_crash_keep">Keep the Renut</string>
+</resources>

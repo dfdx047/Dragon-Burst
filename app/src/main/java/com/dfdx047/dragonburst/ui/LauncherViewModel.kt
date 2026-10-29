@@ -374,7 +374,12 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     fun play(context: Context) {
         val inst = install
         if (inst == null || !inst.playable) {
-            say(if (inst?.xex?.status == FileStatus.DIFFERENT) R.string.err_import_region else R.string.msg_not_installed, "-")
+            // O import so aceita o default.xex USA: outro tamanho ou SHA-1 depois disso e um ficheiro danificado.
+            when (inst?.xex?.status) {
+                FileStatus.DIFFERENT -> say(R.string.msg_xex_damaged, context.getString(R.string.file_damaged))
+                FileStatus.WRONG_SIZE -> say(R.string.msg_xex_damaged, context.getString(R.string.file_wrong_size))
+                else -> say(R.string.msg_not_installed, "-")
+            }
             return
         }
         viewModelScope.launch {

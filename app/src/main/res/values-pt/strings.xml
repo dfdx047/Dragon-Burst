@@ -37,6 +37,7 @@
     <string name="file_missing_required">em falta (obrigatório)</string>
     <string name="file_missing_optional">faltando (opcional)</string>
     <string name="file_wrong_size">tamanho errado</string>
+    <string name="file_damaged">conteúdo diferente do original</string>
     <string name="launch_options_title">Abertura do jogo</string>
     <string name="orientation">Orientação do jogo</string>
     <string name="orientation_landscape">Paisagem</string>
@@ -62,6 +63,7 @@
     <string name="msg_verify_ok">Os arquivos do jogo estão completos.</string>
     <string name="msg_verify_problems">Alguns arquivos faltam ou não conferem. Veja a lista.</string>
     <string name="msg_not_installed">Importe o jogo primeiro (aba Início).</string>
+    <string name="msg_xex_damaged">O default.xex importado está danificado (%1$s). Importe o jogo de novo (aba Início, o .iso ou a pasta); os saves e as opções ficam.</string>
     <string name="msg_shortcut_requested">Atalho pedido: confirme na tela inicial.</string>
     <string name="msg_shortcut_unsupported">O seu launcher não suporta atalhos fixados.</string>
     <string name="err_import_no_xex">Nenhum default.xex encontrado (na pasta ou no disco).</string>
@@ -309,8 +311,7 @@
     <string name="import_folder">Importar pasta</string>
     <string name="busy_reading_disc">Lendo o disco</string>
     <string name="busy_installing_textures">Instalando pack de texturas</string>
-    <string name="status_wrong_region">Não é a versão USA: este port precisa do executável NTSC-U</string>
-    <string name="file_wrong_region">outra versão (só a USA é suportada)</string>
+    <string name="status_xex_damaged">O default.xex está danificado: importe o jogo de novo</string>
     <string name="err_import_no_data">A pasta LONG2DATA não foi encontrada junto do default.xex (%1$s).</string>
     <string name="err_import_region">Esta não é a versão USA (NTSC-U) do Burst Limit (%1$s). O port é recompilado do executável USA.</string>
     <string name="err_import_not_disc">Este arquivo não é uma imagem de disco de Xbox 360 (%1$s). Use um .iso completo (XGD2), não um pacote GOD/XEX.</string>
@@ -544,7 +545,6 @@
     <string name="perf_renderer_now_renut">Agora: Renut. Mudanças valem no próximo arranque.</string>
     <string name="perf_renderer_now_xenia">Agora: Xenia. Mudanças valem no próximo arranque.</string>
     <string name="perf_resolution_renut">O Renut desenha qualquer destas alturas, 1080p incluído, e muda-a no menu do jogo sem reiniciar.</string>
-</resources>
     <string name="renut_crash_title">O jogo fechou</string>
     <string name="renut_crash_text">O jogo fechou. Envie os logs para corrigirmos: Exportar logs guarda-os em Download/, e as issues são onde os mandar.</string>
     <string name="renut_crash_reason">O driver não tem o que o Renut precisa: %1$s.</string>
@@ -553,3 +553,4 @@
     <string name="renut_crash_close">Fechar</string>
     <string name="renut_crash_use_xenia">Usar o Xenia</string>
     <string name="renut_crash_keep">Continuar no Renut</string>
+</resources>

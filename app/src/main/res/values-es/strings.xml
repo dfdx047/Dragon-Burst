@@ -37,6 +37,7 @@
     <string name="file_missing_required">falta (obligatorio)</string>
     <string name="file_missing_optional">falta (opcional)</string>
     <string name="file_wrong_size">tamaño incorrecto</string>
+    <string name="file_damaged">contenido distinto del original</string>
     <string name="launch_options_title">Inicio del juego</string>
     <string name="orientation">Orientación del juego</string>
     <string name="orientation_landscape">Horizontal</string>
@@ -62,6 +63,7 @@
     <string name="msg_verify_ok">Los archivos del juego están completos.</string>
     <string name="msg_verify_problems">Faltan archivos o algunos no coinciden. Revisa la lista.</string>
     <string name="msg_not_installed">Primero importa el juego (pestaña Inicio).</string>
+    <string name="msg_xex_damaged">El default.xex importado está dañado (%1$s). Vuelve a importar el juego (pestaña Inicio, el .iso o la carpeta); las partidas y las opciones se conservan.</string>
     <string name="msg_shortcut_requested">Acceso directo solicitado: confírmalo en la pantalla de inicio.</string>
     <string name="msg_shortcut_unsupported">Tu launcher no admite accesos directos fijados.</string>
     <string name="err_import_no_xex">No se encontró default.xex (en la carpeta o en el disco).</string>
@@ -309,8 +311,7 @@
     <string name="import_folder">Importar carpeta</string>
     <string name="busy_reading_disc">Leyendo el disco</string>
     <string name="busy_installing_textures">Instalando pack de texturas</string>
-    <string name="status_wrong_region">No es la versión USA: este port necesita el ejecutable NTSC-U</string>
-    <string name="file_wrong_region">otra versión (solo se admite la USA)</string>
+    <string name="status_xex_damaged">El default.xex está dañado: vuelve a importar el juego</string>
     <string name="err_import_no_data">No se encontró la carpeta LONG2DATA junto a default.xex (%1$s).</string>
     <string name="err_import_region">Esta no es la versión USA (NTSC-U) de Burst Limit (%1$s). El port se recompila del ejecutable USA.</string>
     <string name="err_import_not_disc">Este archivo no es una imagen de disco de Xbox 360 (%1$s). Usa un .iso completo (XGD2), no un paquete GOD/XEX.</string>
@@ -544,7 +545,6 @@
     <string name="perf_renderer_now_renut">Ahora: Renut. Los cambios se aplican en el próximo inicio.</string>
     <string name="perf_renderer_now_xenia">Ahora: Xenia. Los cambios se aplican en el próximo inicio.</string>
     <string name="perf_resolution_renut">Renut dibuja cualquiera de estas alturas, 1080p incluido, y la cambia en el menú del juego sin reiniciar.</string>
-</resources>
     <string name="renut_crash_title">El juego se cerró</string>
     <string name="renut_crash_text">El juego se cerró. Envíanos los logs para corregirlo: Exportar logs los guarda en Download/, y las issues son donde enviarlos.</string>
     <string name="renut_crash_reason">El driver no tiene lo que el Renut necesita: %1$s.</string>
@@ -553,3 +553,4 @@
     <string name="renut_crash_close">Cerrar</string>
     <string name="renut_crash_use_xenia">Usar Xenia</string>
     <string name="renut_crash_keep">Seguir con el Renut</string>
+</resources>

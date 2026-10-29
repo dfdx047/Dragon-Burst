@@ -437,7 +437,15 @@ public class GameActivity extends SDLActivity {
         try {
             com.dfdx047.dragonburst.data.GameLib.install(this);
         } catch (Exception e) {
-            UnsatisfiedLinkError err = new UnsatisfiedLinkError("libgame.so: " + e.getMessage());
+            // O SDL mostra esta mensagem num dialogo (atalho do jogo sem passar pelo launcher): a mesma do JOGAR.
+            String msg = "libgame.so: " + e.getMessage();
+            if (e instanceof com.dfdx047.dragonburst.data.ImportException) {
+                com.dfdx047.dragonburst.data.ImportException ie = (com.dfdx047.dragonburst.data.ImportException) e;
+                msg = ie.getReason() == com.dfdx047.dragonburst.data.ImportException.Reason.NO_XEX
+                        ? getString(com.dfdx047.dragonburst.R.string.msg_not_installed)
+                        : getString(com.dfdx047.dragonburst.R.string.msg_xex_damaged, ie.getDetail());
+            }
+            UnsatisfiedLinkError err = new UnsatisfiedLinkError(msg);
             err.initCause(e);
             throw err;
         }

@@ -393,6 +393,24 @@ por agora?" (Continuar no Renut / Usar o Xenia), nunca sozinho. Testado no Cube 
 1.o, Exportar logs grava `Download/DragonBurst-logs-*.zip` (18 MB), pergunta so ao 2.o, "Usar o Xenia" grava
 `swordman_renderer = "xenos"`; uma sessao normal no Renut apaga o marcador e a contagem.
 
+**Atualizacao por cima da 0.1.2 (item 4), Cube e RP5.** `DragonBurst-v0.1.2.apk` do GitHub (versionCode 3, a mesma chave)
+instalado por cima (`adb install -r -d`, a pasta do jogo fica), import do `.iso` na 0.1.2 ("Jogo importado. Pronto
+para jogar!"), opcoes mudadas (Carregar ki ligado e rapido, Cenarios extras desligado) e um save novo criado pela
+0.1.2 no arranque (o anterior guardado a parte). Depois o build novo por cima (`adb install -r`, sem importar): o
+JOGAR mostra "Lendo o disco · default.xex" e "Preparando o codigo do jogo · 28 / 29 MB" (gravacao do ecra; 120 ms no
+Cube) e o jogo arranca no Renut ate ao menu com o save da 0.1.2 (md5 igual) e as opcoes mudadas no toml. O
+`GameLib` passa a escrever essa linha tambem em `logs/update.log` (vai no Exportar logs). default.xex danificada (4
+bytes trocados): a tela inicial dizia "Nao e a versao USA"; agora "O default.xex esta danificado: importe o jogo de
+novo", com o JOGAR desligado (o import so aceita a USA, por isso outro SHA-1 ou tamanho depois disso e dano); o
+atalho do jogo mostra a mesma mensagem no dialogo do SDL se o libgame tiver de ser refeito. default.xex em falta:
+"Jogo ainda nao importado" e o JOGAR desligado; o jogo aberto direto mostra o proprio ecra de instalacao ("The game
+files weren't found. Choose your ... (.iso)"), sem crash. Importar de novo apaga e copia sempre o default.xex. RP5: o mesmo com o `.iso` importado na 0.1.2 (Carregar ki
+ligado e rapido, Cenarios extras desligado, save novo da 0.1.2) e depois o build novo por cima: o JOGAR mostra "Lendo
+o disco · default.xex" com a barra, o `update.log` regista o libgame refeito (id novo, 82 ms) e o jogo arranca no
+Renut com o cabelo preto, o save com o md5 igual (0477ad5b) e o toml igual (md5 0fa4aa31). No RP5 a primeira
+tentativa nao refez nada porque um build de teste com o mesmo id ja tinha deixado o libgame: o teste valido e o do
+build seguinte, com outro id.
+
 **Quadrados e bolas do loading (item 2): corrigido (renut/0113).** Reproducao deterministica: no ecra "Now Loading"
 as esferas de dragao saem no Renut vermelhas, verdes e escuras as manchas, e no Xenia laranja translucidas. Pelo censo
 do dump em anel (`swordman_renut_frame_dump_ring`, novo, gravado ao pedido `files/frame_dump.req`) e por
