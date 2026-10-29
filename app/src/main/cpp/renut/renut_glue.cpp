@@ -140,7 +140,8 @@ rex::system::object_ref<rex::system::XHostThread> g_vblank_thread;
 constexpr uint32_t kBlVBlankHandler = 0x820B5CF8;
 
 // O ritmo do vblank que o jogo pediu (frame_rate do burstlimit_patches: 30 = vblank a 30 Hz, que segura o jogo a 30
-// como no Xenia; 0 = os 60 Hz do modo de video). Ate 240 Hz; acima (unlocked) fica nos 60.
+// como no Xenia; 0 = os 60 Hz do modo de video). Ate 240 Hz; acima (unlocked) fica nos 60: no Renut o jogo fica
+// preso ao present na mesma (BlockOnFence a 16 ms por frame com o vblank a 1000 Hz e renut_vsync off, Odin 3).
 std::chrono::nanoseconds VBlankInterval() {
   const double hz = rex::graphics::GetGuestVblankRate();
   return std::chrono::nanoseconds(int64_t(1e9 / (hz >= 1.0 && hz <= 240.0 ? hz : 60.0)));
@@ -165,7 +166,8 @@ int VBlankThreadMain() {
     uint64_t args[] = {device};
     dispatcher->ExecuteInterrupt(thread->thread_state(), kBlVBlankHandler, args, 1);
     const uint64_t n = g_vblanks.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (n == 1 || n == 600) REXLOG_INFO("Renut: VBlank do D3D a 60 Hz ({} vblanks, device {:08X})", n, device);
+    if (n == 1 || n == 600)
+      REXLOG_INFO("Renut: VBlank do D3D a {:.0f} Hz ({} vblanks, device {:08X})", 1e9 / double(interval.count()), n, device);
   }
 }
 

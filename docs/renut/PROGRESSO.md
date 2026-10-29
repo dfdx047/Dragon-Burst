@@ -528,3 +528,49 @@ Regressao depois do merge (t32, Renut): RP5 luta 30,0/29,9 (GPU 10,5 ms) e campa
 Cube 540p luta 53,4/42,1 e campanha 50,3/41,2 (t26: 47,7/41,3 e 50,2/42,4); Xenia no RP5 (t31) luta ate ao fim com
 os golpes certos. Fora da tela (t32): RP5 Xenia 1,6 %, RP5 Renut com a tela desligada 1,0 %, Cube 1,1-1,3 %; mesmo
 processo e som na volta, vigia da UI calado, conquistas por perfil no log (`achievements/B13EBABEBABEBABE/`).
+
+## B: AYN Odin 3 (29/10, 13:20-16:25 Lisboa, Adreno 830, tela de 120 Hz)
+
+Renut com o driver do sistema da Qualcomm (Adreno (TM) 830, Vulkan 1.4): arranca sem o Turnip. Luta CPU x CPU de 2 min
+e campanha 01 de 3 min (cutscene de 70 s e depois golpes); cada caso comecou com a CPU e a GPU abaixo de 75 C. Durante
+as corridas a CPU anda a 87-88 C de media (picos de 93-101 C) e a GPU a 63-80 C (picos de 69-90 C).
+
+B1, 60 FPS (fps medio / minimo, GPU ms):
+
+| altura | luta | campanha |
+|---|---|---|
+| 720p | 59,8 / 57,6, 3,1 ms | 60,0 / 60,0, 3,1 ms |
+| 1080p | 60,0 / 60,0, 7,0 ms | 60,0 / 59,9, 6,8 ms |
+| 1440p | 59,8 / 59,3, 11,7 ms | 49,5 / 29,8, 19,4 ms (noutra corrida 60,0 / 59,7, 12,4 ms) |
+| 2160p | 23,8 / 19,9, 43,4 ms | 21,3 / 19,6, 47,7 ms |
+
+1080p e a maior que segura 60 nas duas. A 1440p a campanha quente cai: a GPU passa de 12 ms para 19-33 ms com o
+gpu_busy a 99 % e o relogio no maximo (1100 MHz); o 4K custa 3,7 vezes o 1440p para 2,25 vezes os pixeis. Fica por
+ver se e o driver a sair do modo por blocos (GMEM) acima de um tamanho.
+
+B2, 120 FPS nativo: no Renut o jogo ficava nos 60 com a tela a 120 Hz (game_fps 58,7). O ritmo do Swap
+(sa2_renut_pacing) tinha a grelha fixa de 60 Hz; a renut 0117 segue o vblank que o jogo pediu (60, 120, 144). Com ela
+(t34, tela a 120 Hz):
+
+| altura | luta | campanha |
+|---|---|---|
+| 720p | 118,9 / 107,7, 2,9 ms | 119,9 / 119,7, 3,1 ms |
+| 1080p | 117,7 / 108,1, 7,4 ms | 119,2 / 117,9, 7,3 ms |
+| 1440p | 34,2 / 29,1, 30,9 ms | 37,0 / 29,2, 30,7 ms |
+
+A velocidade do jogo nao muda: a cutscene da campanha 01 corta nas mesmas horas a 120 e a 60 (1,6/1,6, 3,2/3,2,
+14,3/14,4, 17,7/17,7, 18,7/18,7, 23,8/23,6, 25,4/25,1 s; fotos a cada ~0,7 s), e o relogio do round desce 10-11 em
+10,5-10,8 s nos dois (para durante os especiais). A renut 0116 poe na linha de 10 s o que chega a tela
+(`[renut] presented: game_fps= presented_fps=`).
+
+B3, taxa desbloqueada: no Renut fica nos 60 (59,3). Tres tentativas: (1) o VBlank do Renut aceitar ate 1000 Hz (ficou
+a 1000 Hz, o jogo nao); (2) mais `renut_vsync = false`; o jogo espera 16,4 ms por frame em `BlockOnFence`, preso ao
+present a 60 Hz, com a GPU a 3,5 ms; (3) o Xenia desbloqueado como referencia, que nao chegou a correr. Abandonado:
+o Android nao oferece o desbloqueado. O VBlank volta aos 240 Hz, e o log diz agora o ritmo real.
+
+O Odin 3 saiu do adb as 16:25: bateria a 2 % (10,4 W de consumo contra o USB do PC; as 15:00 ja estava a 54 % no cabo).
+Ficou a carregar desligado. B4 (120 interpolado), B5 (15 min) e B6 (regressao completa) ficam para quando voltar.
+
+Regressao (t36): RP5 luta 30,0/30,0 (GPU 10,9 ms), campanha 30,0/30,0 (11,0 ms); Cube 540p luta 47,3/41,2 e
+campanha 50,2/42,4. Na luta do Cube as primeiras 20 janelas sao as mesmas da t32; depois a luta da t36 ficou no chao
+de Plains, mais pesado (GPU 16-18 ms), e a da t32 subiu ao ceu (13-16 ms).

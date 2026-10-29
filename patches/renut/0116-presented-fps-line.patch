@@ -1,0 +1,37 @@
+Dragon Burst renut 0116: the 10 s stats say what reached the screen
+
+"[renut] presented: game_fps=... presented_fps=... (N shown, M of them generated)" after the 10 s line, from
+rex::perf::GetPresentStats (counted where the Renut presents): for 120 Hz, the unlocked rate and the interpolated
+120 (B2-B4 on the Odin 3), the game rate and the presented rate side by side.
+
+diff --git a/app/src/renut_engine/gpu/banjo_renut_tuning.cpp b/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
+--- a/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
++++ b/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
+@@ -2,6 +2,7 @@
+ #include "renut_engine/gpu/backend/render_thread.h"
+ #include "renut_engine/gpu/backend/video.h"
+ #include <rex/frame_latency.h>
++#include <rex/perf/frame_rate.h>
+ #include "renut_engine/display_sync.h"
+ #include "renut_engine/gpu/banjo_renut_tuning.h"
+ #include "renut_engine/gpu/banjo_renut_record.h"
+@@ -716,6 +717,19 @@
+               bool_generic, bool_built, tess_vertices, tess_corners);
+ #if defined(__ANDROID__)
+   {
++    // Dragon Burst (renut/0116): what reached the screen in the interval (rex::perf::GetPresentStats, counted where
++    // the Renut presents), next to the game frames above: presented_fps vs game_fps with 120 Hz and interpolation.
++    static uint64_t last_shown = 0, last_generated = 0;
++    const auto &present = rex::perf::GetPresentStats();
++    const uint64_t shown = present.shown.load(std::memory_order_relaxed);
++    const uint64_t generated = present.generated.load(std::memory_order_relaxed);
++    REXLOG_INFO("[renut] presented: game_fps={:.2f} presented_fps={:.2f} ({} shown, {} of them generated)",
++                double(t.game_frames) / since, double(shown - last_shown) / since, shown - last_shown,
++                generated - last_generated);
++    last_shown = shown;
++    last_generated = generated;
++  }
++  {
+     // Zandatsu (renut/0027): passes de render no intervalo (plume, GPUs por blocos; a funcao esta declarada no topo
+     // porque o plume_vulkan.h so entra no build do Switch).
+     static uint64_t last[12] = {};

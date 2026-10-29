@@ -1,0 +1,80 @@
+Dragon Burst renut 0117: the Swap pacing follows the frame rate the game asked for
+
+sa2_renut_pacing released each Swap on a fixed 60 Hz grid (kRefresh = 1/60), so frame_rate = 120 and unlocked stayed at
+60 FPS on the Renut (Odin 3, 2026-10-29: the screen at 120 Hz, game_fps 58.7). The refresh is now one of
+rex::graphics::GetGuestVblankRate (60, 120, 144, or 1000 for unlocked; unknown = 60).
+
+diff --git a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+--- a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
++++ b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+@@ -34,6 +34,7 @@
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
+ #include <rex/perf/frame_rate.h>
++#include <rex/graphics/frame_pacing.h>
+ 
+ #include "renut_engine/gpu/backend/queued.h"
+ #include "renut_engine/display_sync.h"  // sa2-nx (2026-10-20): banjo_display_sync
+@@ -55,7 +56,14 @@
+ 
+ using Clock = std::chrono::steady_clock;
+ constexpr uint32_t kDeviceOffsetPresentationInterval = 13596;  // Dragon Burst: BL (N&B)  // the device's copy of D3DPRESENT_PARAMETERS + 52
+-constexpr Clock::duration kRefresh = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / 60.0));
++// Dragon Burst (renut/0117): one refresh of the rate the game asked for (burstlimit_patches frame_rate: 60, 120, 144, or
++// 1000 for unlocked, through rex::graphics::SetGuestVblankRate), not a fixed 60 Hz, which held 120 FPS and unlocked at 60
++// on the Renut. As on Xenia, the fight keeps its 60 Hz tick at those rates (burstlimit_patches). Unknown (0) = 60 Hz.
++Clock::duration Refresh() {
++  const double hz = rex::graphics::GetGuestVblankRate();
++  return std::chrono::duration_cast<Clock::duration>(
++      std::chrono::duration<double>(1.0 / (hz >= 1.0 && hz <= 1000.0 ? hz : 60.0)));
++}
+ 
+ // Refreshes per frame for D3DPRESENT_INTERVAL_*: as SA2's SynchronizeToPresentationInterval (sub_825589D8) maps them.
+ uint32_t RefreshesPerFrame(uint32_t interval) {
+@@ -166,13 +174,14 @@
+   const auto *interval_word = ::renut::gpu::GuestPtr<const be_u32>(device_va + kDeviceOffsetPresentationInterval);
+   const uint32_t refreshes = RefreshesPerFrame(interval_word ? uint32_t(*interval_word) : 1);
+   const auto now = Clock::now();
++  const Clock::duration refresh = Refresh();
+   // sa2-nx (2026-10-20, banjo_display_sync, Banjo's latency set): on the Switch the release follows the display's own
+   // refresh (its vsync event) plus a measured phase, as late as the frame's image still makes the refresh, instead of
+   // this clock's 60 Hz grid, which drifts against the display's. A late frame goes at once (as relaxed vsync); fixed
+   // vsync (sa2_vsync_relaxed off) and an unknown refresh (the PC, the first frames) keep the grid below.
+   ::banjo::display_sync::Start();
+   if (g_started && refreshes && REXCVAR_GET(mgr_renut_vsync_relaxed)) {
+-    const auto period = kRefresh * refreshes;
++    const auto period = refresh * refreshes;
+     const uint64_t now_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count());
+     const uint64_t period_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(period).count());
+     bool anchored = false;
+@@ -190,11 +199,11 @@
+   if (!g_started || !refreshes) {
+     g_started = true;
+     g_grid = now;
+-    g_due = now + kRefresh * (refreshes ? refreshes : 1);
++    g_due = now + refresh * (refreshes ? refreshes : 1);
+     NoteRelease(now, now, false);
+     return;
+   }
+-  const auto period = kRefresh * refreshes;
++  const auto period = refresh * refreshes;
+   if (now <= g_due) {
+     // On time: released at the due refresh; the next is due a period after it (a fixed grid, so the sleep's own
+     // lateness does not add up).
+@@ -206,13 +215,13 @@
+   if (REXCVAR_GET(mgr_renut_vsync_relaxed)) {
+     // Late: at once. A little late (under half a refresh: the host's scheduling), the grid is kept; more, the next
+     // frame is due a period after this one.
+-    g_due = now - g_due < kRefresh / 2 ? g_due + period : now + period;
++    g_due = now - g_due < refresh / 2 ? g_due + period : now + period;
+     NoteRelease(now, now, true);
+     return;
+   }
+   // Late, fixed vsync: the next refresh of the grid (g_due lies on it).
+-  const auto refreshes_late = (now - g_due + kRefresh - Clock::duration(1)) / kRefresh;
+-  const auto release = g_due + kRefresh * refreshes_late;
++  const auto refreshes_late = (now - g_due + refresh - Clock::duration(1)) / refresh;
++  const auto release = g_due + refresh * refreshes_late;
+   SleepUntil(release);
+   g_due = release + period;
+   NoteRelease(now, Clock::now(), true);
