@@ -1,0 +1,25 @@
+Dragon Burst 0196: the UI thread no longer spins in SDL_WaitEvent on Android
+
+On Android SDL_WaitEvent pumps the events with a poll sentinel each pass, and adding the sentinel wakes the Android
+event wait (Android_SendLifecycleEvent WAKE), so the wait never blocked: the UI thread (SDLThread) used a whole core
+with the Renut, SDL_UpdateJoysticks and clock_gettime on a loop (simpleperf, RG Cube and Odin 3, 2026-10-29). The
+loop turns the sentinel off with SDL_HINT_POLL_SENTINEL (public SDL API; SDL itself is not changed). Nothing here
+uses SDL_PollEvent's end-of-cycle stop.
+
+diff --git a/src/ui/windowed_app_context_sdl.cpp b/src/ui/windowed_app_context_sdl.cpp
+--- a/src/ui/windowed_app_context_sdl.cpp
++++ b/src/ui/windowed_app_context_sdl.cpp
+@@ -87,6 +87,13 @@
+ 
+ int SDLWindowedAppContext::RunMainMessageLoop() {
+   StartUIWatchdog();
++#if REX_PLATFORM_ANDROID
++  // Dragon Burst: no SDL poll sentinel. On Android SDL_WaitEvent pumps the events with a sentinel each pass, and
++  // adding the sentinel wakes the Android event wait, so the wait never blocked: the UI thread used a whole core
++  // (SDL_UpdateJoysticks and the clock on a loop, simpleperf on the RG Cube, 2026-10-29). Nothing here uses
++  // SDL_PollEvent's end-of-cycle stop.
++  SDL_SetHint(SDL_HINT_POLL_SENTINEL, "0");
++#endif
+   while (!HasQuitFromUIThread()) {
+     SDL_Event event;
+     if (!SDL_WaitEvent(&event)) {

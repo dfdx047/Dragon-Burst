@@ -574,3 +574,21 @@ Ficou a carregar desligado. B4 (120 interpolado), B5 (15 min) e B6 (regressao co
 Regressao (t36): RP5 luta 30,0/30,0 (GPU 10,9 ms), campanha 30,0/30,0 (11,0 ms); Cube 540p luta 47,3/41,2 e
 campanha 50,2/42,4. Na luta do Cube as primeiras 20 janelas sao as mesmas da t32; depois a luta da t36 ficou no chao
 de Plains, mais pesado (GPU 16-18 ms), e a da t32 subiu ao ceu (13-16 ms).
+
+### A thread da interface ocupava um nucleo (29/10, 20:30-21:10)
+
+No Odin 3 a CPU passava dos 100 C com o Renut e ficava nos 65 C com o Xenia. A thread da interface (SDLThread, o
+`RunMainMessageLoop`) estava sempre a correr (estado R), a 100 % de um nucleo, nos tres modos (60, 120 e 120
+interpolado). No Cube, igual. O simpleperf no Cube (root, com os simbolos da libgame do PC, mesmo build-id) mostra
+83 % do tempo dentro do `SDL_WaitEvent`: `SDL_PumpEventsInternal` -> `SDL_UpdateJoysticks` e o relogio, em ciclo. No
+Android cada volta da espera do SDL poe na fila o "poll sentinel", e cada evento novo acorda a espera do Android
+(`SDL_ANDROID_LIFECYCLE_WAKE`), por isso ela nunca bloqueava. Contagem: ~235 eventos por segundo devolvidos (os
+`SDL_PumpEvents` que o `QueueControllerUpdate` pede a cada leitura dos comandos), mas um nucleo inteiro gasto entre
+eles. No Xenia a thread passa o tempo bloqueada no present, por isso nao se notava. Nao e do merge: com
+`input_poll_on_read = false` e igual.
+
+Prova: `env:SDL_POLL_SENTINEL = 0` no cvars.txt tira a SDLThread da lista das threads quentes. A SDK 0196 desliga o
+sentinel com a dica publica `SDL_HINT_POLL_SENTINEL` no inicio do ciclo (o SDL nao e mexido); ninguem aqui usa o
+`SDL_PollEvent`. t38: Cube Renut luta 48,5/41,4 e campanha 53,1/44,1 (GPU 16 ms, limitado pela GPU como antes), Cube
+Xenia luta 30,3/26,2 a pintar normalmente; RP5 luta 60,0/59,9 (GPU 8,5 ms) e campanha 60,0/59,9. O toml do RP5 mudou
+as 19:41 fora destes testes (de 30 para 60 FPS, md5 6de1f04f): fica como esta.
