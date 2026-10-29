@@ -410,3 +410,17 @@ mesmo VS e ligado a outras declaracoes no mesmo frame e o render thread lia o re
 efeito (anotado): decode BC na CPU (`swordman_renut_bc_decode = "cpu"`), so o nivel 0 quando nao ha endereco de mips,
 o mapa de direcao BC879F9A (desenha no alvo da cena e e composto a seguir, legitimamente), o reuso de cadeia
 (compara layout_hash) e cache de vfetch velha (rele as palavras a cada draw).
+
+**Perfil 480+ (item 5): FSR ate 720p (renut/0114).** RP5 com `device-profile.sh limit sd480p`, `present_effect =
+"fsr"` (o toml do dono), 120 s por medicao. Censo de GPU por passe a 540p (t16, `renut_gpu_profile`): 17,5 ms por
+frame, dos quais o present 7,9 ms (EASU + RCAS de 960x540 para 1920x1080), os draws da cena 4,5, o pos-processamento
+1,9, os resolves 1,7, a sombra 768x768 1,1. Com `bilinear` o present custa 0,8 ms e com `cas` 2,1: o EASU a 1080p e
+~5,5 ms na GPU a 305 MHz. RCAS em meia precisao (como o EASU ja esta): 7,94 vs 7,86 ms, sem ganho, revertido. Agora,
+num upscale de 1,75x ou mais (os 540p e 480p dos aparelhos fracos num ecra 1080p), o FSR vai ate
+`swordman_renut_fsr_max_height` (720 por omissao; 0 = ate ao ecra), EASU e RCAS ai, e a saida bilinear leva-o ao
+ecra; os upscales menores (Cube: 540p para 405 linhas) nao mudam. Present 7,9 -> 4,1 ms, GPU 17,5 -> 13,6 ms.
+Antes/depois (fps medio / minimo, GPU ms, espera da GPU, CPU do jogo): luta 540p 58,1/56,0, 16,6, 11,6, 5,6 ->
+59,9/59,4, 12,4, 5,0, 11,7; campanha 540p 59,0/57,4, 16,3 -> 59,8/59,4, 12,5; luta 480p 59,8/58,3, 15,8 ->
+60,0/59,9, 12,1; campanha 480p 59,9/59,5, 15,5 -> 59,8/58,6, 11,4. A base desta noite (t16, mesmo perfil e script)
+ja deu 56-60, longe dos 39,1 / 53,9 / 50,3 de 28/10; a causa da diferenca nao foi isolada. As arestas no
+menu ficam iguais as do FSR ate 1080p a olho (fotos), e a imagem fica limpa na luta e na campanha.

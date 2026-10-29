@@ -1,0 +1,147 @@
+diff --git a/app/src/renut_engine/gpu/backend/present.cpp b/app/src/renut_engine/gpu/backend/present.cpp
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -60,6 +60,14 @@
+                     "Renut's renderer: apply the game's display gamma ramp at scan-out, as the Xbox 360's display "
+                     "controller, the emulated GPU and the native renderer do (off: the frame as rendered, lighter)");
+ 
++// Dragon Burst (2026-10-29): a performance-mode upscale (1.75x or more: the weak GPUs' 540p or 480p on a 1080p
++// screen) runs FSR to this height, EASU and RCAS there, and the bilinear scan-out takes it to the screen. In the
++// Snapdragon 480+ profile (RP5 GPU at 305 MHz) EASU + RCAS from 540p to 1080p took 7.9 ms of a 17.5 ms frame.
++// 0: FSR always to the screen's height.
++REXCVAR_DEFINE_INT32(swordman_renut_fsr_max_height, 720, "SwordMan",
++                     "Renut, present_effect = fsr: the most FSR upscales to when the frame is upscaled 1.75x or more "
++                     "(then bilinear to the screen); 0 = the screen's height");
++
+ // SwordMan (2026-10-26): FitFrame below; widescreen: guest/sa2_screen.cpp.
+ REXCVAR_DEFINE_STRING(swordman_aspect, "original", "SwordMan",
+                       "Proporcao: original = 16:9 com barras; stretch = esticar ate a tela; widescreen = o jogo "
+@@ -289,7 +297,9 @@
+ // pipeline that failed to build: the single pass of RecordScanOut. The captures (CaptureFrameLocked) stay bilinear.
+ constexpr plume::RenderFormat kEffectFormat = plume::RenderFormat::R8G8B8A8_UNORM;  // kSwapChainFormat (video.cpp)
+ 
+-enum class Effect { kBilinear, kFsr, kCas };
++// Dragon Burst (2026-10-29): kFsrScaled, FSR at swordman_renut_fsr_max_height, then the bilinear scan-out.
++enum class Effect { kBilinear, kFsr, kCas, kFsrScaled };
++
+ 
+ struct PresentEffect {
+   bool built = false, failed = false;
+@@ -299,6 +309,11 @@
+   std::unique_ptr<plume::RenderTextureView> view;
+   std::unique_ptr<plume::RenderFramebuffer> framebuffer;
+   uint32_t slot = kInvalidDescriptor, width = 0, height = 0;
++  // Dragon Burst (kFsrScaled): RCAS's image, the target's size.
++  std::unique_ptr<plume::RenderTexture> sharp;
++  std::unique_ptr<plume::RenderTextureView> sharp_view;
++  std::unique_ptr<plume::RenderFramebuffer> sharp_framebuffer;
++  uint32_t sharp_slot = kInvalidDescriptor, sharp_width = 0, sharp_height = 0;
+ };
+ PresentEffect g_effect;
+ 
+@@ -379,6 +394,43 @@
+   return true;
+ }
+ 
++// Dragon Burst (kFsrScaled): RCAS's image, as EnsureEffectTarget.
++bool EnsureSharpTarget(VideoState &s, uint32_t w, uint32_t h) {
++  PresentEffect &e = g_effect;
++  if (e.sharp && e.sharp_width == w && e.sharp_height == h)
++    return true;
++  if (e.sharp) {
++    detail::WaitAllSubmitted(s);
++    WaitInterpListsLocked(s);
++  }
++  e.sharp_framebuffer.reset();
++  e.sharp_view.reset();
++  e.sharp.reset();
++  e.sharp_width = e.sharp_height = 0;
++  plume::RenderTextureDesc desc = plume::RenderTextureDesc::Texture2D(w, h, 1, kEffectFormat);
++  desc.flags |= plume::RenderTextureFlag::RENDER_TARGET;
++  e.sharp = s.device->createTexture(desc);
++  if (!e.sharp)
++    return false;
++  e.sharp->setName("renut present FSR image (RCAS)");
++  e.sharp_view = e.sharp->createTextureView(plume::RenderTextureViewDesc::Texture2D(kEffectFormat));
++  const plume::RenderTexture *attachment = e.sharp.get();
++  e.sharp_framebuffer = s.device->createFramebuffer(plume::RenderFramebufferDesc(&attachment, 1));
++  if (e.sharp_slot == kInvalidDescriptor)
++    e.sharp_slot = Video::AllocateTextureSlotLocked();
++  if (!e.sharp_view || !e.sharp_framebuffer || e.sharp_slot == kInvalidDescriptor) {
++    e.sharp_framebuffer.reset();
++    e.sharp_view.reset();
++    e.sharp.reset();
++    return false;
++  }
++  Video::SetTextureSlotLocked(e.sharp_slot, e.sharp.get(), e.sharp_view.get());
++  e.sharp_width = w;
++  e.sharp_height = h;
++  RGPU_INFO("present_effect: FSR at {}x{}, bilinear to the screen (swordman_renut_fsr_max_height)", w, h);
++  return true;
++}
++
+ // Before the output's render pass: the first pass into the effect image. The effect the scan-out then takes
+ // (RecordEffectScanOut), bilinear when there is none.
+ Effect RecordEffectPrePass(VideoState &s, const PresentImage &image, uint32_t out_w, uint32_t out_h) {
+@@ -389,8 +441,16 @@
+   const uint32_t src_w = image.source_width ? image.source_width : image.width;
+   const uint32_t src_h = image.source_height ? image.source_height : image.height;
+   const FrameFit fit = FitFrame(out_w, out_h, src_w, src_h);
+-  const uint32_t w = uint32_t(fit.viewport.width + 0.5f), h = uint32_t(fit.viewport.height + 0.5f);
+-  if (!w || !h || !BuildEffectPipelines(s) || !EnsureEffectTarget(s, w, h))
++  uint32_t w = uint32_t(fit.viewport.width + 0.5f), h = uint32_t(fit.viewport.height + 0.5f);
++  // Dragon Burst (kFsrScaled): a performance-mode upscale runs FSR at swordman_renut_fsr_max_height.
++  const int32_t max_height = REXCVAR_GET(swordman_renut_fsr_max_height);
++  const bool scaled = effect == Effect::kFsr && max_height > 0 && h > uint32_t(max_height) &&
++                      float(h) >= 1.75f * float(src_h) * fit.visible[1];
++  if (scaled) {
++    w = std::max(1u, uint32_t(float(w) * float(max_height) / float(h) + 0.5f));
++    h = uint32_t(max_height);
++  }
++  if (!w || !h || !BuildEffectPipelines(s) || !EnsureEffectTarget(s, w, h) || (scaled && !EnsureSharpTarget(s, w, h)))
+     return Effect::kBilinear;
+   PresentEffect &e = g_effect;
+   plume::RenderCommandList *cmd = s.command_list;
+@@ -429,12 +489,41 @@
+   cmd->setFramebuffer(nullptr);
+   cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
+                 plume::RenderTextureBarrier(e.target.get(), plume::RenderTextureLayout::SHADER_READ));
+-  return effect;
++  if (!scaled)
++    return effect;
++  // Dragon Burst (kFsrScaled): RCAS into its image, with no gamma and no ramp (the scan-out applies them).
++  cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
++                plume::RenderTextureBarrier(e.sharp.get(), plume::RenderTextureLayout::COLOR_WRITE));
++  cmd->setFramebuffer(e.sharp_framebuffer.get());
++  cmd->setViewports(plume::RenderViewport(0.0f, 0.0f, float(w), float(h)));
++  cmd->setScissors(plume::RenderRect(0, 0, int32_t(w), int32_t(h)));
++  cmd->setPipeline(e.rcas.get());
++  UtilityPush sharpen{};
++  sharpen.scale[0] = sharpen.scale[1] = 1.0f;
++  sharpen.texture_index = e.slot;
++  sharpen.sampler_index = std::bit_cast<uint32_t>(float(REXCVAR_GET(present_fsr_sharpness_reduction)));
++  sharpen.param0 = 1.0f;
++  sharpen.param1 = 0.0f;
++  cmd->setGraphicsPushConstants(0, &sharpen, 0, sizeof(sharpen));
++  cmd->drawInstanced(3, 1, 0, 0);
++  cmd->setFramebuffer(nullptr);
++  cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
++                plume::RenderTextureBarrier(e.sharp.get(), plume::RenderTextureLayout::SHADER_READ));
++  return Effect::kFsrScaled;
+ }
+ 
+ // In the output's render pass, in place of RecordScanOut: RCAS or CAS from the effect image, with the gamma ramp.
+ void RecordEffectScanOut(VideoState &s, const PresentImage &image, uint32_t out_w, uint32_t out_h, Effect effect) {
+   const PresentEffect &e = g_effect;
++  if (effect == Effect::kFsrScaled) {  // Dragon Burst: the bilinear scan-out of RCAS's image (the frame, fitted)
++    PresentImage sharp;
++    sharp.texture = e.sharp.get();
++    sharp.descriptor = e.sharp_slot;
++    sharp.width = e.sharp_width;
++    sharp.height = e.sharp_height;
++    RecordScanOut(s, sharp, out_w, out_h);
++    return;
++  }
+   plume::RenderCommandList *cmd = s.command_list;
+   const uint32_t src_w = image.source_width ? image.source_width : image.width;
+   const uint32_t src_h = image.source_height ? image.source_height : image.height;
