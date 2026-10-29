@@ -86,10 +86,9 @@ Full feature-by-feature list against the PC version: [docs/COMPATIBILIDADE.md](d
 
 **Renut (0.2.0, default).** The native renderer of
 [Zandatsu](https://github.com/dfdx047/Zandatsu): it draws the game's Direct3D straight to
-Vulkan instead of emulating the Xbox 360 GPU. Auto uses it where the driver has what it needs (Adreno
-with the system driver or Turnip, Mali) and Xenia elsewhere; the Drivers tab says why, and if the Renut
-closes the game at startup Auto switches to Xenia by itself. Two defects remain: some characters' hair is
-grey, and rarely a coloured square flashes during a special move.
+Vulkan instead of emulating the Xbox 360 GPU. Auto always uses it, on every GPU (Adreno with the system
+driver or Turnip, Mali); Xenia stays as an option on the Performance screen. If the game closes, the app
+says so and offers Export logs; only from the 2nd close in a row does it ask whether to use Xenia for now.
 
 **Xenia.** Burst Limit Recompiled uses the Xenia renderer, which imitates the Xbox 360 GPU and is heavy for a phone.
 Dragon Burst replaces the most expensive parts with a **native renderer**, step by step, each with a
@@ -112,7 +111,7 @@ round is in [docs/ESTADO.md](docs/ESTADO.md) (Portuguese).
 | Device | SoC / GPU | Driver | Result |
 |---|---|---|---|
 | Retroid Pocket 5 | Snapdragon 865 / Adreno 650 | system (Qualcomm) | Renut at 720p: a steady 60 FPS in fights and in the campaign (11 ms of GPU). Xenia at 720p with every effect: up to 60 FPS in fights, about 47-50 FPS in heavy scenes. |
-| Retroid Pocket 5, 480+ profile | Snapdragon 865 / Adreno 650 (GPU limited) | system / Turnip | Renut: 50 FPS at 480p, a steady 30 FPS at 540p; at 540p asking for 60, 39 in fights and 54 in the campaign. |
+| Retroid Pocket 5, 480+ profile | Snapdragon 865 / Adreno 650 (GPU limited) | system / Turnip | Renut with FSR: 60 FPS at 480p and at 540p in fights and in the campaign (minimum 59 at 540p). |
 | Retroid Pocket 5 | Snapdragon 865 / Adreno 650 | Turnip (several builds, Mesa 25.3 and 26.3) | Wrong image (olive background, swapped colors). Use the system driver. |
 | Anbernic RG Cube | Unisoc T770 / Mali-G57 MC4 | system | Renut with "Screen" (360p): 60 FPS in fights and in the campaign; 480p 59 FPS, 540p 50-52 FPS. Xenia at 720p with effects: 22-24 FPS. |
 | AYN Odin 3 | — | — | Not tested yet (it will be the 120 FPS test device). |

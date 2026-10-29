@@ -15,21 +15,18 @@ Novo renderizador Renut (Direct3D nativo) por padrão e o RG Cube a 60 FPS.
 
 Renderizador
 - Renut, o renderizador nativo do Zandatsu: desenha o Direct3D do jogo direto em Vulkan, sem imitar a GPU do Xbox 360. Desempenho > Renderizador: Auto (padrão), Renut ou Xenia.
-- Auto usa o Renut onde o driver tem o que ele precisa e o Xenia nos outros; a aba Drivers diz o porquê. Se o Renut fechar o jogo ao abrir, o Auto passa sozinho ao Xenia.
+- Auto usa sempre o Renut, em todas as GPUs; o Xenia fica como opção do jogador.
+- Se o jogo fechar, o app avisa e oferece Exportar logs para corrigirmos; a partir do 2.º fecho seguido pergunta se quer usar o Xenia por agora. Nunca troca sozinho.
 - O Renut roda com o driver do sistema da Qualcomm (ex.: Retroid Pocket 5), sem precisar do Turnip.
 
 Desempenho
 - Nova resolução "Tela": desenha na altura que a imagem ocupa na tela. Nas telas pequenas o app sugere-a no primeiro arranque.
 - RG Cube (Mali-G57) com o Renut e "Tela" (360p): 60 FPS na luta e na campanha (antes 22-24 FPS a 720p).
 - Retroid Pocket 5 com o Renut, driver do sistema: 720p a 60 FPS estáveis na luta e na campanha (GPU 11 ms por quadro; antes até 60 com quedas para 47-50).
-- Perfil 480+ do Retroid Pocket 5 (GPU limitada): 50 FPS a 480p e 30 FPS estáveis a 540p.
+- Perfil 480+ do Retroid Pocket 5 (GPU limitada): 60 FPS a 480p e a 540p, na luta e na campanha. Nos upscales grandes (540p ou 480p numa tela 1080p) o FSR vai até 720p e o resto é bilinear, o que poupa quase metade da GPU por quadro.
 
 Arquivos do jogo
-- O código do jogo vem cifrado no APK e só se abre com o default.xex do seu disco. Quem já importou o jogo não precisa fazer nada.
-
-Problemas conhecidos (Renut)
-- O cabelo de algumas personagens fica cinzento em vez de preto. No Xenia está certo.
-- Raramente, num golpe especial, aparece um quadrado colorido por um instante.
+- O código do jogo vem cifrado no APK e só se abre com o default.xex do seu disco. Quem atualiza da 0.1.x não precisa importar de novo: no primeiro JOGAR o app prepara o código a partir do jogo já importado (com barra de progresso), e os saves e as opções ficam.
 
 ## EN
 
@@ -37,21 +34,18 @@ New Renut renderer (native Direct3D) by default, and the RG Cube at 60 FPS.
 
 Renderer
 - Renut, the Zandatsu native renderer: it draws the game's Direct3D straight to Vulkan instead of emulating the Xbox 360 GPU. Performance > Renderer: Auto (default), Renut or Xenia.
-- Auto uses the Renut where the driver has what it needs and Xenia elsewhere; the Drivers tab says why. If the Renut closes the game at startup, Auto switches to Xenia by itself.
+- Auto always uses the Renut, on every GPU; Xenia stays as the player's option.
+- If the game closes, the app says so and offers Export logs so we can fix it; from the 2nd close in a row it asks whether to use Xenia for now. It never switches by itself.
 - The Renut runs on Qualcomm's system driver (e.g. Retroid Pocket 5), no Turnip needed.
 
 Performance
 - New "Screen" resolution: draws at the height the picture takes on the screen. On small screens the app suggests it at first launch.
 - RG Cube (Mali-G57) with the Renut and "Screen" (360p): 60 FPS in fights and in the campaign (was 22-24 FPS at 720p).
 - Retroid Pocket 5 with the Renut, system driver: a steady 60 FPS at 720p in fights and in the campaign (11 ms of GPU a frame; was up to 60 with drops to 47-50).
-- Retroid Pocket 5 480+ profile (GPU limited): 50 FPS at 480p and a steady 30 FPS at 540p.
+- Retroid Pocket 5 480+ profile (GPU limited): 60 FPS at 480p and at 540p, in fights and in the campaign. On large upscales (540p or 480p on a 1080p screen) FSR goes up to 720p and the rest is bilinear, which saves almost half of the GPU time a frame.
 
 Game files
-- The game code ships encrypted in the APK and only opens with your disc's default.xex. If you already imported the game, there is nothing to do.
-
-Known issues (Renut)
-- Some characters' hair is grey instead of black. It is right on Xenia.
-- Rarely, a coloured square flashes during a special move.
+- The game code ships encrypted in the APK and only opens with your disc's default.xex. Updating from 0.1.x needs no new import: on the first PLAY the app prepares the code from the game you already imported (with a progress bar), and your saves and options stay.
 
 ## ES
 
@@ -59,21 +53,18 @@ Nuevo renderizador Renut (Direct3D nativo) por defecto y la RG Cube a 60 FPS.
 
 Renderizador
 - Renut, el renderizador nativo de Zandatsu: dibuja el Direct3D del juego directamente en Vulkan, sin emular la GPU de Xbox 360. Rendimiento > Renderizador: Auto (por defecto), Renut o Xenia.
-- Auto usa el Renut donde el driver tiene lo que necesita y Xenia en los demás; la pestaña Drivers dice por qué. Si el Renut cierra el juego al arrancar, Auto pasa solo a Xenia.
+- Auto usa siempre el Renut, en todas las GPU; Xenia queda como opción del jugador.
+- Si el juego se cierra, la app lo avisa y ofrece Exportar logs para que lo corrijamos; a partir del 2.º cierre seguido pregunta si quieres usar Xenia por ahora. Nunca cambia solo.
 - El Renut funciona con el driver del sistema de Qualcomm (p. ej. Retroid Pocket 5), sin Turnip.
 
 Rendimiento
 - Nueva resolución "Pantalla": dibuja a la altura que ocupa la imagen en la pantalla. En pantallas pequeñas la app la sugiere en el primer arranque.
 - RG Cube (Mali-G57) con el Renut y "Pantalla" (360p): 60 FPS en combate y en la campaña (antes 22-24 FPS a 720p).
 - Retroid Pocket 5 con el Renut, driver del sistema: 720p a 60 FPS estables en combate y en la campaña (11 ms de GPU por cuadro; antes hasta 60 con caídas a 47-50).
-- Perfil 480+ de la Retroid Pocket 5 (GPU limitada): 50 FPS a 480p y 30 FPS estables a 540p.
+- Perfil 480+ de la Retroid Pocket 5 (GPU limitada): 60 FPS a 480p y a 540p, en combate y en la campaña. En los escalados grandes (540p o 480p en una pantalla 1080p) el FSR llega hasta 720p y el resto es bilineal, lo que ahorra casi la mitad de la GPU por cuadro.
 
 Archivos del juego
-- El código del juego va cifrado en el APK y solo se abre con el default.xex de tu disco. Si ya importaste el juego, no tienes que hacer nada.
-
-Problemas conocidos (Renut)
-- El pelo de algunos personajes sale gris en lugar de negro. En Xenia está bien.
-- Rara vez, en un golpe especial, aparece un cuadrado de color por un instante.
+- El código del juego va cifrado en el APK y solo se abre con el default.xex de tu disco. Al actualizar desde la 0.1.x no hace falta importar de nuevo: en el primer JUGAR la app prepara el código a partir del juego ya importado (con barra de progreso), y las partidas guardadas y las opciones se mantienen.
 
 # 0.1.2: Mali e kernel 4.14 · Mali and kernel 4.14 · Mali y kernel 4.14 (2026-10-17)
 
