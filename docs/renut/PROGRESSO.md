@@ -383,6 +383,16 @@ troca, `BoundDeclType`/`UnswapHalves`): a normal e o uv chegavam trocados ao too
 os formatos 16_16, 16_16_16_16 e os seus FLOAT marcados 8in16 (como a declaracao do mesmo tipo), o host liga `swap 1`
 nesses elementos e o cabelo do Goku e do Raditz fica preto na luta e na campanha, no Cube e no RP5, igual ao Xenia.
 
+**Crash do Renut (item 3).** O Auto escolhe sempre o Renut (todas as GPUs, incluindo a Adreno 7xx com o driver do
+sistema); o Xenia so pela opcao do jogador. Sem o que o Renut precisa, o jogo regista o motivo
+(`renut_support.txt`) e fecha (`db_renut_app.h`), sem passar ao Xenia. O `GameActivity` poe `renut_run.pending`
+enquanto o jogo corre no Renut e apaga-o no `onPause` (uma saida limpa zera tambem `renut_crashes.txt`); o launcher
+que o encontra conta um crash seguido e mostra "O jogo fechou. Envie os logs para corrigirmos" com Exportar logs, o
+link das issues e o motivo do driver, se houver; so a partir do 2.o seguido pergunta "Usar o modo emulado (Xenia)
+por agora?" (Continuar no Renut / Usar o Xenia), nunca sozinho. Testado no Cube com o marcador posto a mao: aviso ao
+1.o, Exportar logs grava `Download/DragonBurst-logs-*.zip` (18 MB), pergunta so ao 2.o, "Usar o Xenia" grava
+`swordman_renderer = "xenos"`; uma sessao normal no Renut apaga o marcador e a contagem.
+
 **Quadrados e bolas do loading (item 2): corrigido (renut/0113).** Reproducao deterministica: no ecra "Now Loading"
 as esferas de dragao saem no Renut vermelhas, verdes e escuras as manchas, e no Xenia laranja translucidas. Pelo censo
 do dump em anel (`swordman_renut_frame_dump_ring`, novo, gravado ao pedido `files/frame_dump.req`) e por

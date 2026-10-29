@@ -501,8 +501,7 @@
     <string name="drivers_turnip_unsupported">Sin soporte conocido de Turnip en esta GPU: usa el driver del sistema. %1$s</string>
     <string name="drivers_turnip_auto">Con Turnip activo, TU_DEBUG=%1$s se aplica automáticamente en esta GPU.</string>
     <string name="drivers_boot_failed">El driver %1$s cerró el juego al arrancar y se está usando el del sistema. Elige otro driver (o el mismo de nuevo) para volver a probar.</string>
-    <string name="drivers_renut_missing">En el último intento del Renut, el driver no tenía lo que necesita (%1$s) y el juego usó Xenia. Turnip suele tenerlo.</string>
-    <string name="drivers_renut_boot_failed">En el último intento el Renut cerró el juego al arrancar, así que Auto usa ahora Xenia. Elegir otra vez el renderizador (Rendimiento) vuelve a probar el Renut.</string>
+    <string name="drivers_renut_missing">En el último intento del Renut, el driver no tenía lo que necesita (%1$s) y el juego se cerró. Turnip suele tenerlo.</string>
     <string name="turnip_compat_ir3_nopreamble">Compilador de shaders: sin preámbulo (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Compilador de shaders: sin optimización de UBO (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sin cálculos de 16 bits (IR3 nofp16)</string>
@@ -546,3 +545,11 @@
     <string name="perf_renderer_now_xenia">Ahora: Xenia. Los cambios se aplican en el próximo inicio.</string>
     <string name="perf_resolution_renut">Renut dibuja cualquiera de estas alturas, 1080p incluido, y la cambia en el menú del juego sin reiniciar.</string>
 </resources>
+    <string name="renut_crash_title">El juego se cerró</string>
+    <string name="renut_crash_text">El juego se cerró. Envíanos los logs para corregirlo: Exportar logs los guarda en Download/, y las issues son donde enviarlos.</string>
+    <string name="renut_crash_reason">El driver no tiene lo que el Renut necesita: %1$s.</string>
+    <string name="renut_crash_ask">Se cerró %1$d veces seguidas. ¿Usar el modo emulado (Xenia) por ahora? Puedes volver al Renut en Rendimiento > Renderizador.</string>
+    <string name="renut_crash_issues">Abrir las issues</string>
+    <string name="renut_crash_close">Cerrar</string>
+    <string name="renut_crash_use_xenia">Usar Xenia</string>
+    <string name="renut_crash_keep">Seguir con el Renut</string>

@@ -220,8 +220,35 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         showGpuLost = false
     }
 
+    /**
+     * O Renut fechou o jogo (RenutCrash): quantos crashes seguidos (0 = sem aviso). Do 2.o em diante o aviso pergunta se o
+     * jogador quer o Xenia por agora; e o jogador que escolhe.
+     */
+    var renutCrashes by mutableStateOf(0)
+        private set
+    /** O motivo que o jogo deu (o driver sem o que o Renut precisa), ou "". */
+    var renutCrashReason by mutableStateOf("")
+        private set
+
+    private suspend fun checkRenutCrash() {
+        val n = com.dfdx047.dragonburst.data.RenutCrash.check()
+        if (n == 0) return
+        val reason = com.dfdx047.dragonburst.data.RenutCrash.missing()
+        withContext(Dispatchers.Main) {
+            renutCrashReason = reason
+            renutCrashes = n
+        }
+    }
+
+    /** Fecha o aviso; useXenia = o jogador aceitou o modo emulado por agora (Desempenho > Renderizador volta ao Renut). */
+    fun answerRenutCrash(useXenia: Boolean) {
+        renutCrashes = 0
+        if (useXenia) updateConfig { it.copy(renderer = "xenos") }
+    }
+
     fun reloadAfterGame() {
         viewModelScope.launch(Dispatchers.IO) {
+            checkRenutCrash()
             val c = GameConfig.load()
             val lost = prefs.gpuLostAt != 0L
             if (lost) prefs.gpuLostAt = 0L
@@ -835,8 +862,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     // Fica no fim da classe: as propriedades acima ja tem de estar inicializadas.
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            // Antes de gravar o toml: o Renut do "auto" fechou o jogo no ultimo arranque?
-            com.dfdx047.dragonburst.data.RenutSupport.checkBoot()
+            // O Renut fechou o jogo da ultima vez (o launcher foi aberto de novo)?
+            checkRenutCrash()
             val loaded = GameConfig.load()
             withContext(Dispatchers.Main) { config = loaded }
             // Garante que o toml existe com as opcoes do launcher desde o primeiro arranque.

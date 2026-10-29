@@ -154,6 +154,7 @@ fun LauncherApp(vm: LauncherViewModel) {
     if (vm.showGpuNotice) GpuNotice(vm, openTab = { tab = it })
     else if (vm.showScreenResNotice) ScreenResNotice(vm)
     if (vm.showGpuLost) GpuLostDialog(vm, openTab = { tab = it })
+    else if (vm.renutCrashes > 0) RenutCrashDialog(vm)
     if (vm.showUpdateDialog) UpdateDialog(vm)
 }
 
@@ -351,6 +352,57 @@ private fun ScreenResNotice(vm: LauncherViewModel) {
         },
         dismissButton = {
             TextButton(onClick = { vm.answerScreenResNotice(false) }) { Text(stringResource(R.string.screen_res_keep)) }
+        },
+    )
+}
+
+/**
+ * O Renut fechou o jogo (RenutCrash): pede os logs (Exportar logs, issues) e, do 2.o crash seguido em diante, pergunta se
+ * o jogador quer o Xenia por agora. Nunca troca sozinho.
+ */
+@Composable
+private fun RenutCrashDialog(vm: LauncherViewModel) {
+    val context = LocalContext.current
+    val ask = vm.renutCrashes >= 2
+    val issues = com.dfdx047.dragonburst.DragonBurstApp.GITHUB_URL + "/issues"
+    AlertDialog(
+        onDismissRequest = { vm.answerRenutCrash(false) },
+        icon = { Icon(Icons.Filled.Memory, null) },
+        title = { Text(stringResource(R.string.renut_crash_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(R.string.renut_crash_text))
+                if (vm.renutCrashReason.isNotEmpty()) Text(stringResource(R.string.renut_crash_reason, vm.renutCrashReason))
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(issues, style = MaterialTheme.typography.bodySmall)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    androidx.compose.material3.OutlinedButton(onClick = { vm.exportLogs(context) }, enabled = vm.busy == null) {
+                        Text(stringResource(R.string.export_logs))
+                    }
+                    androidx.compose.material3.OutlinedButton(onClick = {
+                        try {
+                            context.startActivity(
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(issues)),
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }) { Text(stringResource(R.string.renut_crash_issues)) }
+                }
+                if (ask) {
+                    Text(
+                        stringResource(R.string.renut_crash_ask, vm.renutCrashes),
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (ask) TextButton(onClick = { vm.answerRenutCrash(true) }) { Text(stringResource(R.string.renut_crash_use_xenia)) }
+            else TextButton(onClick = { vm.answerRenutCrash(false) }) { Text(stringResource(R.string.renut_crash_close)) }
+        },
+        dismissButton = {
+            if (ask) TextButton(onClick = { vm.answerRenutCrash(false) }) { Text(stringResource(R.string.renut_crash_keep)) }
         },
     )
 }

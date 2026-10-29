@@ -141,10 +141,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                     "xenos" to "Xenia",
                 ),
                 selected = c.renderer,
-                onSelect = { v ->
-                    com.dfdx047.dragonburst.data.RenutSupport.clearBootFailure()
-                    vm.updateConfig { it.copy(renderer = v) }
-                },
+                onSelect = { v -> vm.updateConfig { it.copy(renderer = v) } },
             )
             StatusLine(
                 stringResource(if (c.useRenut) R.string.perf_renderer_uses_renut else R.string.perf_renderer_uses_xenia),

@@ -44,6 +44,7 @@ public class GameActivity extends SDLActivity {
     private static final String TAG = "dbz3";
 
     private GameOverlay mOverlay;
+    private boolean mRenut;  // esta sessao corre no Renut (markRenutRun)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,7 +69,7 @@ public class GameActivity extends SDLActivity {
         if (!driverCrashedBefore(appDir)) {
             installCustomVulkanDriver(appDir);
         }
-        markRenutBoot(appDir);
+        markRenutRun(appDir);
         prepareLogFile(appDir);
 
         Log.i(TAG, "Pasta do jogo: " + appDir.getAbsolutePath() + "/game_data_root");
@@ -136,6 +137,14 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (mRenut) {
+            try {
+                //noinspection ResultOfMethodCallIgnored
+                new File(getExternalFilesDir(null), "renut_run.pending").createNewFile();
+            } catch (java.io.IOException e) {
+                Log.w(TAG, "renut_run", e);
+            }
+        }
         if (mOverlay != null) {
             mOverlay.onResume();
         }
@@ -144,8 +153,12 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onPause() {
         clearDriverBootPending();
-        //noinspection ResultOfMethodCallIgnored
-        new File(getExternalFilesDir(null), "renut_boot.pending").delete();
+        if (mRenut) {  // saiu normalmente: nao e crash, e a contagem de crashes seguidos volta a zero
+            //noinspection ResultOfMethodCallIgnored
+            new File(getExternalFilesDir(null), "renut_run.pending").delete();
+            //noinspection ResultOfMethodCallIgnored
+            new File(getExternalFilesDir(null), "renut_crashes.txt").delete();
+        }
         if (mOverlay != null) {
             mOverlay.onPause();
         }
@@ -536,20 +549,20 @@ public class GameActivity extends SDLActivity {
     }
 
     /**
-     * O Renut pedido pelo "auto" (burstlimit.toml): renut_boot.pending durante os primeiros 30 s (ou ate sair). Se o
-     * jogo fechar antes, o launcher encontra-o (RenutSupport.checkBoot) e o "auto" passa ao Xenia.
+     * O jogo no Renut (burstlimit.toml, swordman_renderer = "renut"): renut_run.pending enquanto esta em primeiro plano
+     * (daqui ate ao onPause, e de novo no onResume). Se o processo cair, fica la: o launcher encontra-o
+     * (RenutCrash.check), mostra o aviso e conta os crashes seguidos; sair normalmente apaga-o e zera a contagem.
      */
-    private void markRenutBoot(File appDir) {
-        File pending = new File(appDir, "renut_boot.pending");
+    private void markRenutRun(File appDir) {
         try {
             String toml = new String(java.nio.file.Files.readAllBytes(new File(appDir, "burstlimit.toml").toPath()));
-            if (toml.contains("swordman_renderer = \"renut\"") && toml.contains("swordman_renderer_choice = \"auto\"")) {
+            mRenut = toml.contains("swordman_renderer = \"renut\"");
+            if (mRenut) {
                 //noinspection ResultOfMethodCallIgnored
-                pending.createNewFile();
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(pending::delete, 30000);
+                new File(appDir, "renut_run.pending").createNewFile();
             }
         } catch (Exception e) {
-            Log.w(TAG, "renut_boot", e);
+            Log.w(TAG, "renut_run", e);
         }
     }
 

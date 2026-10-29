@@ -502,8 +502,7 @@
     <string name="drivers_turnip_unsupported">No known Turnip support for this GPU: use the system driver. %1$s</string>
     <string name="drivers_turnip_auto">With Turnip active, TU_DEBUG=%1$s is applied automatically on this GPU.</string>
     <string name="drivers_boot_failed">The driver %1$s closed the game on startup, so the system driver is being used. Choose another driver (or the same one again) to try it again.</string>
-    <string name="drivers_renut_missing">Last time the Renut was tried, the driver lacked what it needs (%1$s), so the game used Xenia. Turnip usually has it.</string>
-    <string name="drivers_renut_boot_failed">On the last try the Renut closed the game at startup, so Auto now uses Xenia. Choosing the renderer again (Performance) tries the Renut again.</string>
+    <string name="drivers_renut_missing">Last time the Renut was tried, the driver lacked what it needs (%1$s) and the game closed. Turnip usually has it.</string>
     <string name="turnip_compat_ir3_nopreamble">Shader compiler: no preamble (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Shader compiler: no UBO optimization (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Shader compiler: no 16-bit math (IR3 nofp16)</string>
@@ -547,3 +546,11 @@
     <string name="perf_renderer_now_xenia">Now: Xenia. Changes apply at the next start.</string>
     <string name="perf_resolution_renut">Renut draws any of these heights, 1080p included, and changes it in the game menu without restarting.</string>
 </resources>
+    <string name="renut_crash_title">The game closed</string>
+    <string name="renut_crash_text">The game closed. Send us the logs so we can fix it: Export logs saves them to Download/, and the issues page is where to post them.</string>
+    <string name="renut_crash_reason">The driver lacks what the Renut needs: %1$s.</string>
+    <string name="renut_crash_ask">It closed %1$d times in a row. Use the emulated mode (Xenia) for now? You can go back to the Renut in Performance > Renderer.</string>
+    <string name="renut_crash_issues">Open the issues</string>
+    <string name="renut_crash_close">Close</string>
+    <string name="renut_crash_use_xenia">Use Xenia</string>
+    <string name="renut_crash_keep">Keep the Renut</string>

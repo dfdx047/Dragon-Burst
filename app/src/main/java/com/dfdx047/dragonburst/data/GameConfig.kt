@@ -74,13 +74,13 @@ data class GameConfig(
     val nativeLinearDepth: Boolean = true,    // dbz3_bl_native_linear_depth (render nativo: profundidade linear por compute)
     val nativeIntoTexture: Boolean = true,    // dbz3_render_into_texture (passo 4: passes direto na textura)
     val nativePostLite: Boolean = true,       // dbz3_resolve_dedupe + dbz3_skip_null_draws + dbz3_bl_native_post_lite (passo 3) + dbz3_bl_native_contour/_downsample/_blur/_glow_composite (3b)
-    // Renderizador (28/10, como no Zandatsu): auto (por omissao) = o Renut (Direct3D nativo, docs/renut) salvo onde
-    // RenutSupport.validatedGpu o exclui, e o Xenia como recurso; renut / xenos = escolha do jogador. Se o driver nao
-    // tiver o que o Renut precisa, o jogo usa o Xenia nessa sessao e diz porque (renut_support.txt, ecra Drivers).
+    // Renderizador (29/10, decisao do dono): auto (por omissao) = o Renut (Direct3D nativo, docs/renut) em todas as GPUs;
+    // o Xenia so quando o jogador o escolhe ("xenos"). Nunca troca sozinho: se o Renut fechar o jogo, o launcher mostra
+    // o aviso e, do 2.o crash seguido em diante, pergunta se o jogador quer o Xenia por agora (RenutCrash).
     val renderer: String = "auto",
 ) {
-    /** O jogo arranca no Renut com estas opcoes (escolha + GPU). */
-    val useRenut: Boolean get() = renderer == "renut" || (renderer == "auto" && RenutSupport.validatedGpu())
+    /** O jogo arranca no Renut com estas opcoes. */
+    val useRenut: Boolean get() = renderer != "xenos"
 
     /**
      * sa2_render_height_handheld: a altura que o Renut desenha (360-2160; 1080p so ele faz). A "Resolucao da tela" no
@@ -537,40 +537,40 @@ fun recommendedPreset(): GraphicsPreset {
 }
 
 /**
- * O "auto" (renderizador por omissao, 28/10 a tarde): o Renut em qualquer GPU, e o jogo usa o Xenia nessa sessao quando
- * o driver nao tem o que o Renut precisa (renut_glue.cpp, renut_support.txt, aviso no ecra Drivers). Validado no RP5
- * (Adreno 650, Turnip e o driver do sistema, renut/0109), no Odin 2 Mini (740) e no RG Cube (Mali-G57). Fora: a Adreno
- * 710/720 com o driver do sistema da SIGBUS ao abrir o Renut (Zandatsu), e um aparelho onde o Renut do "auto" fechou o
- * jogo no arranque (renut_boot.pending que o GameActivity deixa nos primeiros 30 s; checkBoot no launcher).
+ * O Renut fechou o jogo (29/10, decisao do dono: o Xenia nao e muleta). O GameActivity deixa renut_run.pending enquanto o
+ * jogo do Renut esta em primeiro plano (do arranque ao onPause) e zera a contagem ao sair normalmente. Se o launcher
+ * encontra o marcador, o jogo fechou: mais um crash seguido e o aviso (Exportar logs, issues); do 2.o seguido em diante
+ * pergunta se o jogador quer o Xenia por agora. Nunca troca sozinho. O motivo, quando o jogo o sabe (o driver sem o que
+ * o Renut precisa), vem do renut_support.txt.
  */
-object RenutSupport {
-    private val pending get() = java.io.File(AppPaths.appDir, "renut_boot.pending")
-    private val failed get() = java.io.File(AppPaths.appDir, "renut_boot.failed")
+object RenutCrash {
+    private val pending get() = java.io.File(AppPaths.appDir, "renut_run.pending")
+    private val count get() = java.io.File(AppPaths.appDir, "renut_crashes.txt")
 
-    fun validatedGpu(): Boolean {
-        if (failed.exists()) return false
-        if (com.dfdx047.dragonburst.drivers.DriverRepository.isAdreno()) {
-            val adreno = com.dfdx047.dragonburst.drivers.TurnipSupport.detect().adreno
-            return adreno !in 710..722
-        }
-        return true
+    /** Crashes seguidos ate agora (0 = a ultima sessao do Renut saiu normalmente). */
+    fun consecutive(): Int = try {
+        count.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull() ?: 0
+    } catch (_: Exception) {
+        0
     }
 
-    /**
-     * No arranque do launcher (o jogo nao esta a correr): o marcador do ultimo arranque do Renut ainda la esta, logo o
-     * jogo fechou nos primeiros 30 s. O "auto" passa ao Xenia e o ecra Drivers diz porque.
-     */
-    fun checkBoot() {
-        try {
-            if (!pending.exists()) return
-            pending.renameTo(failed)
-            java.io.File(AppPaths.appDir, "renut_support.txt").writeText("no\nboot\n")
-        } catch (_: Exception) {
+    /** Com o jogo fechado: a ultima sessao do Renut caiu? Conta-a e devolve os crashes seguidos (0 = nao caiu). */
+    fun check(): Int = try {
+        if (!pending.exists()) 0 else {
+            pending.delete()
+            val n = consecutive() + 1
+            count.writeText("$n\n")
+            n
         }
+    } catch (_: Exception) {
+        0
     }
 
-    /** O jogador escolheu o renderizador outra vez: o "auto" volta a tentar o Renut. */
-    fun clearBootFailure() {
-        failed.delete()
+    /** O que o jogo disse do driver na ultima tentativa (renut_support.txt "no" + a lista), ou "". */
+    fun missing(): String = try {
+        val lines = java.io.File(AppPaths.appDir, "renut_support.txt").takeIf { it.isFile }?.readLines().orEmpty()
+        if (lines.firstOrNull()?.trim() == "no") lines.getOrNull(1)?.trim().orEmpty() else ""
+    } catch (_: Exception) {
+        ""
     }
 }
