@@ -25,6 +25,8 @@ Desempenho
 - Retroid Pocket 5 com o Renut, driver do sistema: 720p a 60 FPS estáveis na luta e na campanha (GPU 11 ms por quadro; antes até 60 com quedas para 47-50).
 - Perfil 480+ do Retroid Pocket 5 (GPU limitada): 60 FPS a 480p e a 540p, na luta e na campanha. Nos upscales grandes (540p ou 480p numa tela 1080p) o FSR vai até 720p e o resto é bilinear, o que poupa quase metade da GPU por quadro.
 - O jogo pausa quando sai da tela (menos bateria e calor): HOME, recentes ou tela desligada param a luta, o desenho e o som, e na volta ele continua de onde estava.
+- 120 FPS (nativo) com o Renut: antes ficava nos 60 numa tela de 120 Hz; agora chega aos 120, à mesma velocidade de jogo.
+- AYN Odin 3 (Adreno 830) com o Renut, driver do sistema: 1080p a 60 e a 120 FPS na luta e na campanha.
 
 Da versão de PC (v7.3)
 - Menos atraso nos comandos: o jogo lê o comando no momento em que pergunta por ele.
@@ -52,6 +54,8 @@ Performance
 - Retroid Pocket 5 with the Renut, system driver: a steady 60 FPS at 720p in fights and in the campaign (11 ms of GPU a frame; was up to 60 with drops to 47-50).
 - Retroid Pocket 5 480+ profile (GPU limited): 60 FPS at 480p and at 540p, in fights and in the campaign. On large upscales (540p or 480p on a 1080p screen) FSR goes up to 720p and the rest is bilinear, which saves almost half of the GPU time a frame.
 - The game pauses when it leaves the screen (less battery and heat): Home, recents or the screen going off stop the fight, the drawing and the sound, and it carries on from where it was when you come back.
+- 120 FPS (native) with the Renut: it stayed at 60 on a 120 Hz screen; it now reaches 120, at the same game speed.
+- AYN Odin 3 (Adreno 830) with the Renut, system driver: 1080p at 60 and at 120 FPS in fights and in the campaign.
 
 From the PC version (v7.3)
 - Less input delay: the game reads the controller at the moment it asks for it.
@@ -79,6 +83,8 @@ Rendimiento
 - Retroid Pocket 5 con el Renut, driver del sistema: 720p a 60 FPS estables en combate y en la campaña (11 ms de GPU por cuadro; antes hasta 60 con caídas a 47-50).
 - Perfil 480+ de la Retroid Pocket 5 (GPU limitada): 60 FPS a 480p y a 540p, en combate y en la campaña. En los escalados grandes (540p o 480p en una pantalla 1080p) el FSR llega hasta 720p y el resto es bilineal, lo que ahorra casi la mitad de la GPU por cuadro.
 - El juego se pausa cuando sale de la pantalla (menos batería y calor): Inicio, recientes o la pantalla apagada detienen el combate, el dibujo y el sonido, y al volver sigue donde estaba.
+- 120 FPS (nativo) con el Renut: antes se quedaba en 60 en una pantalla de 120 Hz; ahora llega a 120, a la misma velocidad de juego.
+- AYN Odin 3 (Adreno 830) con el Renut, driver del sistema: 1080p a 60 y a 120 FPS en combate y en la campaña.
 
 De la versión de PC (v7.3)
 - Menos retraso en los controles: el juego lee el mando en el momento en que lo pide.
