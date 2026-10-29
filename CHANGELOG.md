@@ -26,6 +26,13 @@ Desempenho
 - Perfil 480+ do Retroid Pocket 5 (GPU limitada): 60 FPS a 480p e a 540p, na luta e na campanha. Nos upscales grandes (540p ou 480p numa tela 1080p) o FSR vai até 720p e o resto é bilinear, o que poupa quase metade da GPU por quadro.
 - O jogo pausa quando sai da tela (menos bateria e calor): HOME, recentes ou tela desligada param a luta, o desenho e o som, e na volta ele continua de onde estava.
 
+Da versão de PC (v7.3)
+- Menos atraso nos comandos: o jogo lê o comando no momento em que pergunta por ele.
+- Login com qualquer comando: com o comando no jogador 2-4, o jogo continua a ver o perfil e o Xbox LIVE.
+- Conquistas guardadas por perfil.
+- Packs de texturas: alfa pré-multiplicado, imagens acima de 8192 reduzidas, mips como os do jogo e cores certas nas texturas ARGB.
+- Comandos sem mapeamento no SDL passam a funcionar com um mapeamento genérico.
+
 Arquivos do jogo
 - O código do jogo vem cifrado no APK e só se abre com o default.xex do seu disco. Quem atualiza da 0.1.x não precisa importar de novo: no primeiro JOGAR o app prepara o código a partir do jogo já importado (com barra de progresso), e os saves e as opções ficam.
 
@@ -46,6 +53,13 @@ Performance
 - Retroid Pocket 5 480+ profile (GPU limited): 60 FPS at 480p and at 540p, in fights and in the campaign. On large upscales (540p or 480p on a 1080p screen) FSR goes up to 720p and the rest is bilinear, which saves almost half of the GPU time a frame.
 - The game pauses when it leaves the screen (less battery and heat): Home, recents or the screen going off stop the fight, the drawing and the sound, and it carries on from where it was when you come back.
 
+From the PC version (v7.3)
+- Less input delay: the game reads the controller at the moment it asks for it.
+- Sign-in with any controller: with the pad on player 2-4 the game still sees the profile and Xbox LIVE.
+- Achievements kept per profile.
+- Texture packs: premultiplied alpha, images over 8192 downscaled, mips like the game's and the right colours on ARGB textures.
+- Controllers SDL has no mapping for now work with a generic one.
+
 Game files
 - The game code ships encrypted in the APK and only opens with your disc's default.xex. Updating from 0.1.x needs no new import: on the first PLAY the app prepares the code from the game you already imported (with a progress bar), and your saves and options stay.
 
@@ -65,6 +79,13 @@ Rendimiento
 - Retroid Pocket 5 con el Renut, driver del sistema: 720p a 60 FPS estables en combate y en la campaña (11 ms de GPU por cuadro; antes hasta 60 con caídas a 47-50).
 - Perfil 480+ de la Retroid Pocket 5 (GPU limitada): 60 FPS a 480p y a 540p, en combate y en la campaña. En los escalados grandes (540p o 480p en una pantalla 1080p) el FSR llega hasta 720p y el resto es bilineal, lo que ahorra casi la mitad de la GPU por cuadro.
 - El juego se pausa cuando sale de la pantalla (menos batería y calor): Inicio, recientes o la pantalla apagada detienen el combate, el dibujo y el sonido, y al volver sigue donde estaba.
+
+De la versión de PC (v7.3)
+- Menos retraso en los controles: el juego lee el mando en el momento en que lo pide.
+- Inicio de sesión con cualquier mando: con el mando en el jugador 2-4 el juego sigue viendo el perfil y Xbox LIVE.
+- Logros guardados por perfil.
+- Packs de texturas: alfa premultiplicado, imágenes de más de 8192 reducidas, mips como los del juego y colores correctos en las texturas ARGB.
+- Los mandos sin mapeo en SDL funcionan ahora con uno genérico.
 
 Archivos del juego
 - El código del juego va cifrado en el APK y solo se abre con el default.xex de tu disco. Al actualizar desde la 0.1.x no hace falta importar de nuevo: en el primer JUGAR la app prepara el código a partir del juego ya importado (con barra de progreso), y las partidas guardadas y las opciones se mantienen.
