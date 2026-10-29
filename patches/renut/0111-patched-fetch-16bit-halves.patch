@@ -1,0 +1,142 @@
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+--- a/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/shader.cpp
+@@ -14,6 +14,7 @@
+  */
+ #include <cstring>
+ #include <memory>
++#include <string>
+ #include <unordered_map>
+ #include <utility>
+ #include <vector>
+@@ -276,9 +277,16 @@
+     if (full_const < d3d::kFirstVertexFetchIndex || full_const > 95)
+       continue;
+     const u32 stream = 95 - full_const;
+-    const u32 type = FetchDeclType(format, is_signed, is_integer);
++    u32 type = FetchDeclType(format, is_signed, is_integer);
+     if (type == kDeclTypeUnused || offset < 0)
+       continue;
++    // Dragon Burst (2026-10-28): 16-bit data (every Xbox 360 FLOAT16_n / SHORTn / USHORTn declaration type) is 8in16,
++    // fetched with the stream's 8in32 swap, which exchanges each pair of components; D3D patched the vfetch's
++    // destination swizzle to undo it (the toon VS 59D0D3EA: normal _xyz -> _yxw, uv xy__ -> yx__), but the
++    // recompiled shader keeps the container's swizzle, so the halves are swapped back here as for a declaration
++    // of that type (BoundDeclType). Without it the characters' normal and uv came in swapped: grey hair.
++    if (format == 25 || format == 26 || format == 31 || format == 32)  // 16_16, 16_16_16_16 and their FLOAT
++      type |= 1u << 6;
+     GuestVertexElement element{};
+     element.Stream = u16(stream);
+     element.Offset = u16(u32(offset) * 4);
+@@ -306,6 +314,42 @@
+   return cached.declaration.get();
+ }
+ 
++// Dragon Burst (diagnostic, swordman_renut_diag_vs): the vertex shader's vfetch instructions as the game's Direct3D
++// last patched them, i.e. what the GPU (and Xenia) executes: per element the fetch constant, format, sign, number
++// format, signed mode, exponent adjust, destination swizzle, offset and stride.
++std::string DescribePatchedFetch(u32 vs_va) {
++  const auto *object = GuestPtr<const u8>(vs_va);
++  if (!object)
++    return "no object";
++  auto word_at = [](const u8 *p) { return u32(*reinterpret_cast<const be_u32 *>(p)); };
++  const u32 physical_va = word_at(object + 32);
++  const u8 *container = object + kVertexShaderContainer;
++  const u8 *header = container + word_at(container + 0x18);
++  const u32 skip = word_at(header + 0x18), count = word_at(header + 0x1C);
++  if (!physical_va || !count || count > 32 || skip > 64)
++    return "no vfetch elements";
++  const u8 *physical = physical_va < 0x20000000u ? GuestPhysicalPtr<const u8>(physical_va)
++                                                 : GuestPtr<const u8>(physical_va);
++  if (!physical)
++    return "no microcode";
++  physical += word_at(header);
++  std::string out;
++  for (u32 i = 0; i < count; ++i) {
++    const u32 e = word_at(header + 0x24 + (skip + i) * 4);
++    const u32 address = e & 0xFFF;
++    const u32 w0 = word_at(physical + address * 12), w1 = word_at(physical + address * 12 + 4),
++              w2 = word_at(physical + address * 12 + 8);
++    std::string swizzle;
++    for (u32 c = 0; c < 4; ++c)
++      swizzle += "xyzw01?_"[(w1 >> (c * 3)) & 7];
++    out += fmt::format(" | u{}.{} @{:03X} const {} fmt {} signed {} int {} rf {} exp {} swz {} off {} stride {}{}",
++                       (e >> 12) & 0xF, (e >> 16) & 0xF, address, ((w0 >> 20) & 0x1F) * 3 + ((w0 >> 25) & 3),
++                       (w1 >> 16) & 0x3F, (w1 >> 12) & 1, (w1 >> 13) & 1, (w1 >> 14) & 1,
++                       i32(w1 << 2) >> 26, swizzle, i32(w2 << 1) >> 9, w2 & 0xFF, ((w1 >> 30) & 1) ? " mini" : "");
++  }
++  return out;
++}
++
+ plume::RenderShader *GetHostShader(ShaderRecord *shader) {
+   if (!shader || !shader->entry)
+     return nullptr;
+diff --git a/app/src/renut_engine/gpu/guest/resources.h b/app/src/renut_engine/gpu/guest/resources.h
+--- a/app/src/renut_engine/gpu/guest/resources.h
++++ b/app/src/renut_engine/gpu/guest/resources.h
+@@ -5,6 +5,7 @@
+  */
+ #pragma once
+ 
++#include <string>
+ #include <cstdint>
+ #include <memory>
+ #include <mutex>
+@@ -89,6 +90,7 @@
+ const VertexDeclarationRecord *ShaderFetchDeclarationLocked(ShaderRecord &vs);
+ // Dragon Burst: the vertex shader object's vfetches as its Direct3D bound them (shader.cpp); strides per stream.
+ const VertexDeclarationRecord *PatchedFetchDeclarationLocked(u32 vs_va, const u32 **strides);
++std::string DescribePatchedFetch(u32 vs_va);  // Dragon Burst (diagnostic)
+ 
+ // The shader's host object, building it on first call. nullptr if the shader
+ // is missing from the cache or creation failed. Requires State().mutex.
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -87,6 +87,9 @@
+ // copy. Off; kept for other GPUs. Same bits.
+ REXCVAR_DEFINE_BOOL(swordman_renut_draw_resolves, false, "SwordMan",
+                     "Renut (Vulkan): colour resolves drawn into the texture instead of copied (same bits)");
++REXCVAR_DEFINE_STRING(swordman_renut_diag_vs, "", "SwordMan",
++                      "Dragon Burst (diagnostic): vertex shader hash (hex, first 8 digits) whose vertex layouts and "
++                      "patched vfetches are logged");
+ REXCVAR_DEFINE_STRING(swordman_renut_skip_ps, "", "SwordMan",
+                       "Renut (diagnostic): pixel shader hashes (hex, comma separated) whose draws are skipped")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+@@ -4357,6 +4360,37 @@
+                 declaration ? (declaration == &NoDeclaration() ? "none" : "found") : "missing",
+                 declaration ? declaration->layout.used_mask : 0);
+   }
++  if (vs && !REXCVAR_GET(swordman_renut_diag_vs).empty()) {  // Dragon Burst (diagnostic)
++    static const u32 target = u32(std::strtoul(REXCVAR_GET(swordman_renut_diag_vs).c_str(), nullptr, 16));
++    static std::unordered_set<uint64_t> seen_layouts;
++    if (u32(vs->hash >> 32) == target && declaration && seen_layouts.size() < 16 &&
++        seen_layouts.insert(declaration->layout_hash ^ (uint64_t(declaration_va) << 32)).second) {
++      const u32 vs_va = device.U32(d3d::kDeviceOffsetVertexShader);
++      std::string elements;
++      for (const GuestVertexElement &e : declaration->elements) {
++        const DeclType t = DeclType::Decode(u32(e.Type));
++        elements += fmt::format(" | u{}.{} s{} off {} type {:08X} fmt {} signed {} int {} swz {}{}{}{}", e.Usage,
++                                e.UsageIndex, u32(e.Stream), u32(e.Offset), u32(e.Type), t.format, int(t.is_signed),
++                                int(t.is_integer), t.swizzle[0], t.swizzle[1], t.swizzle[2], t.swizzle[3]);
++      }
++      std::string host;
++      for (u32 st = 0; st < kMaxVertexStreams; ++st) {
++        const HostVertexStream &hs = declaration->layout.streams[st];
++        if (!hs.used)
++          continue;
++        const u32 fetch_index = d3d::kFirstVertexFetchIndex + d3d::StreamFetchIndex(st);
++        host += fmt::format(" | stream {} host stride {} guest stride {} endian {}", st, hs.host_stride,
++                            shader_strides ? shader_strides[st] : u32(device.U8(d3d::kDeviceOffsetStreamStrides + st)) * 4,
++                            device.VertexFetchWord(fetch_index, 1) & 3);
++        for (const HostVertexElement &h : hs.elements)
++          host += fmt::format(" [loc {} guest+{} host+{} fmt {} conv {} swap {} comps {}]", h.location, h.guest_offset,
++                              h.host_offset, int(h.host_format), int(h.conversion), int(h.swap_halves), h.components);
++      }
++      RGPU_INFO("[db-vs] vs {:016X} at {:08X}, declaration {:08X}{}", vs->hash, vs_va, declaration_va, elements);
++      RGPU_INFO("[db-vs]   host:{}", host);
++      RGPU_INFO("[db-vs]   vfetch:{}", DescribePatchedFetch(vs_va));
++    }
++  }
+   // banjo-nx (2026-10-19, render-thread proposal 16): the records this draw reads next, fetched while the code between
+   // runs (the shader entries' first lines, the declaration): first touches were most of the draw's sampled loads.
+   if (vs && vs->entry) {

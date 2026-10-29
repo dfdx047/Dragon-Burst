@@ -368,3 +368,17 @@ ecra Drivers diz porque (escolher o renderizador outra vez limpa-o). Testado no 
 toml `swordman_renderer = "xenos"`, aviso no ecra Drivers, o jogo no Xenia ate ao menu (69 s); limpo, volta ao Renut.
 Regressao com o "auto" (b20): RP5 Renut (driver do sistema, 4 sets) luta 30,0 (min 29,9), campanha 30,0 (min 29,9);
 Cube Renut 640x360 luta 59,9 (min 59,5), campanha 59,9 (min 59,0); Cube no Xenia (56%) luta 44,0, campanha 43,5.
+
+## N1: noite de 28/10 (Lisboa, RP5 + Cube)
+
+**Cabelo cinzento: corrigido (renut/0111).** Diagnostico novo, `swordman_renut_diag_vs = "59D0D3EA"`
+(`render/draw.cpp`): uma vez por layout, os elementos da declaracao, o que o host liga (stride, endian, formato,
+conversao, troca de metades) e as vfetches remendadas (`DescribePatchedFetch`: formato, sinal, inteiro, rf, exp_adjust,
+swizzle, offset, stride). Os draws do toon nao tem declaracao (VA 0): vao pelo `PatchedFetchDeclarationLocked`, com
+dois layouts: pos float3 + normal float3 (stride 32) e cor 8888 + uv 16_16_FLOAT; ou stride 28 com a normal em
+FLOAT16_4. rf e exp_adjust a 0 em todos. O D3D remendou o swizzle de destino das vfetches de 16 bits (normal `_xyz ->
+_yxw`, uv `xy__ -> yx__`) porque todo o tipo de 16 bits do Xbox 360 e 8in16 e a stream e lida com a troca 8in32; o
+shader recompilado guarda o swizzle do contentor, e o caminho das vfetches nao trocava as metades (o da declaracao
+troca, `BoundDeclType`/`UnswapHalves`): a normal e o uv chegavam trocados ao toon, logo a rampa caia no cinzento. Com
+os formatos 16_16, 16_16_16_16 e os seus FLOAT marcados 8in16 (como a declaracao do mesmo tipo), o host liga `swap 1`
+nesses elementos e o cabelo do Goku e do Raditz fica preto na luta e na campanha, no Cube e no RP5, igual ao Xenia.
