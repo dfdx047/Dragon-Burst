@@ -46,6 +46,24 @@ public class GameActivity extends SDLActivity {
     private GameOverlay mOverlay;
     private boolean mRenut;  // esta sessao corre no Renut (markRenutRun)
 
+    /**
+     * Fora da tela (onPause ou superficie destruida) o jogo fica em pausa: a logica para no tick e o audio para
+     * (NativeGameState.setBackground). A chamada vai para uma thread propria, por ordem: o AudioSystem::Pause espera
+     * pelo worker do audio e isso nao deve parar a thread da UI.
+     */
+    private boolean mActivityPaused;
+    private boolean mSurfaceGone;
+    private final java.util.concurrent.ExecutorService mBackgroundExec =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "DragonBurstBackground"));
+
+    private void updateBackground() {
+        if (mBackgroundExec.isShutdown()) {
+            return;
+        }
+        final boolean background = mActivityPaused || mSurfaceGone;
+        mBackgroundExec.execute(() -> NativeGameState.INSTANCE.setBackground(background));
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         applyOrientation();
@@ -137,6 +155,8 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        mActivityPaused = false;
+        updateBackground();
         if (mRenut) {
             try {
                 //noinspection ResultOfMethodCallIgnored
@@ -152,6 +172,8 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onPause() {
+        mActivityPaused = true;
+        updateBackground();
         clearDriverBootPending();
         if (mRenut) {  // saiu normalmente: nao e crash, e a contagem de crashes seguidos volta a zero
             //noinspection ResultOfMethodCallIgnored
@@ -174,6 +196,12 @@ public class GameActivity extends SDLActivity {
                 dm.unregisterDisplayListener(mDisplayListener);
             }
             mDisplayListener = null;
+        }
+        mBackgroundExec.shutdown();  // a ultima ida ao segundo plano antes do forceResume do overlay
+        try {
+            mBackgroundExec.awaitTermination(1, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
         if (mOverlay != null) {
             mOverlay.onDestroy();
@@ -307,6 +335,8 @@ public class GameActivity extends SDLActivity {
         mSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(SurfaceHolder holder) {
+                mSurfaceGone = false;
+                updateBackground();
             }
 
             @Override
@@ -323,6 +353,8 @@ public class GameActivity extends SDLActivity {
 
             @Override
             public void surfaceDestroyed(SurfaceHolder holder) {
+                mSurfaceGone = true;
+                updateBackground();
             }
         });
     }

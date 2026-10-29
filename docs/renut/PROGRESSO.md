@@ -442,3 +442,50 @@ Antes/depois (fps medio / minimo, GPU ms, espera da GPU, CPU do jogo): luta 540p
 60,0/59,9, 12,1; campanha 480p 59,9/59,5, 15,5 -> 59,8/58,6, 11,4. A base desta noite (t16, mesmo perfil e script)
 ja deu 56-60, longe dos 39,1 / 53,9 / 50,3 de 28/10; a causa da diferenca nao foi isolada. As arestas no
 menu ficam iguais as do FSR ate 1080p a olho (fotos), e a imagem fica limpa na luta e na campanha.
+
+## B1: o jogo pausa fora da tela (29/10, 07:00-09:00 Lisboa, RP5 + Cube)
+
+Antes (0.2.0 de 28/10, relatorio de 29/10): com o jogo fora da tela (HOME) a luta continuava a 30 fps, o Renut
+desenhava sem apresentar, ~140 % de CPU e gpu_busy 22-24 % no RP5. Agora, com `onPause` ou a superficie destruida
+(`GameActivity`, `NativeGameState.setBackground`, numa thread propria):
+
+- a logica para no ponto de pausa do tick (a mesma dos menus) e o audio com `AudioSystem::Pause`; o SDL para o
+  stream e a thread da UI (bloqueio no pause);
+- a thread de render do jogo para no Swap (`rex_vdswap_hook`, Renut e Xenia), o VBlank do Renut e o handshake da
+  frame (timeout de 8 ms) esperam a volta (`DragonBurstWaitForeground`, `android_hooks.cpp`, `renut_glue.cpp`);
+- SDK 0189 `rex_background_wait`: o vsync do Xenia (na volta conta de novo, sem rajada), o ciclo ocioso e o
+  WAIT_REG_MEM do command processor, `KeDelayExecutionThread` e `NtYieldExecution`; jogo 0008: a espera do D3D pela
+  GPU (`sub_820B10E8`, sono de 250 us);
+- renut/0115: o render thread do Renut espera sem os acordares de 2 ms do `sa2_renut_wake_batch`;
+- SDK 0190 (tambem em primeiro plano): o `Transport::TimerLoop` da rede online dormia 1 ms de cada vez sem nada
+  para enviar (~1000 acordares/s a sessao inteira); agora espera numa condition variable;
+- SDK 0191 (do DBZ3-Android 0049): no Xenia a volta caia sempre (tambem na t19, antes da pausa):
+  "VulkanPresenter: Failed to create a swapchain" e SIGSEGV em 0x4, o presenter preso a VkSurfaceKHR da janela
+  destruida. MINIMIZED desliga a superficie, RESTORED liga a janela nova; a superficie guarda a sua referencia ao
+  ANativeWindow. Fica um "Failed to create a swapchain" no log na volta, logo seguido de "Created ... swapchain".
+
+Prova (t24-t26, luta CPU x CPU, 60 s fora da tela a partir dos 15 s de luta; `out/tmp/w/t/bg.sh`, `qs.sh`):
+
+| Caso | CPU do `dragonburst:game` fora (top / soma das threads) | GPU | Na pausa | Volta |
+|---|---|---|---|---|
+| RP5 Renut HOME | 0-7,6 % / 1,6 % | gpu_busy 0-4 % (launcher) | 0 ticks, 0 quadros | mesmo PID, swapchain novo, som -21 dB |
+| RP5 Renut tela desligada | 0-7,6 % / 1,2 % | 0 % | 1 tick, 0 quadros | idem |
+| RP5 Renut recentes (60 s) | 0-7,6 % / 1,8 % | 0-4 % | 1 tick, 0 quadros | idem |
+| RP5 Xenia HOME | 0-7,6 % / 3,2 % | 0-4 % | 1 tick, 1 quadro | idem (antes: crash) |
+| Cube Renut HOME | 0-3,8 % / 1,1 % | sem contador (ver abaixo) | 1 tick, 1 quadro | mesmo PID, swapchain novo, som -28 dB |
+| Cube Renut tela desligada | 0-11,5 % / 0,8 % | idem | 1 tick, 1 quadro | idem |
+| Cube Renut recentes (60 s) | 0-3,8 % / 0,8 % | idem | 0 ticks, 1 quadro | idem |
+| Cube Xenia HOME | 0-3,8 % / 1,2 % | idem | 1 tick, 3 quadros | idem (antes: crash) |
+
+Troca rapida (5 vezes recentes 1 s e volta, Renut): RP5 e Cube sem crash, mesmo PID, som. O que resta fora da tela
+e o relogio de 1 ms do kernel (KeTimeStampBundle, `TimerQueue`): ~1000 acordares/s, 1-1,5 % de um nucleo; parar a
+fila de timers dispararia os timers periodicos do jogo em rajada na volta (`due_ += interval_`), por isso fica. No
+Cube o `gpu_work_period` do Mali-G57 so diz "houve trabalho neste segundo" (sempre 999999900 ns) e chega com ~30 s
+de atraso, e o frontend (cocoonshell) tem a GPU a 100 %: a prova sao os quadros mostrados na pausa (log
+`primeiro plano depois de ...`).
+
+Regressao (t26, Renut, `reg.sh` luta CPU x CPU ate ao fim, `camp.sh` 01 Saiyan Arrival 180 s): RP5 (toml do dono,
+30 fps) luta 30,0/29,9 e campanha 30,0/29,9, GPU 11,1 e 10,8 ms, como a t19; Cube a 540p (como a t19) luta
+47,7/41,3 (t19 45,9/40,0) e campanha 50,2/42,4 (t19 53,8/45,3) com GPU 16,3-16,6 ms, mas acabou a 84 C (a campanha
+comecou depois de arrefecer a 62 C so 60 s); imagem igual nas fotos (cabelo preto, sem quadrados, Now Loading).
+APK t26: sha256 edbf7a4575a2cee85bc4faa4527be9c6b2bac92bc8bb5e1cb8e6ac963b94d575.

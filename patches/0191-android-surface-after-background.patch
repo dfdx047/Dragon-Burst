@@ -1,0 +1,79 @@
+Dragon Burst 0191: the presenter gets the new Android surface after the background (from DBZ3-Android 0049)
+
+Back from the background (Home, recents, screen off) the Xenia renderer crashed: the presenter was still bound to the
+VkSurfaceKHR of the destroyed ANativeWindow, vkCreateSwapchainKHR failed ("Failed to create a swapchain") and a
+null pointer was read (SIGSEGV at 0x4), the same in 0.2.0 before the background pause. As in DBZ3-Android 0049: on
+SDL_EVENT_WINDOW_MINIMIZED the presenter lets go of the surface, on SDL_EVENT_WINDOW_RESTORED (sent after
+surfaceCreated) it takes the new window and paints; the surface keeps its own reference to the ANativeWindow
+(ANativeWindow_acquire/release), since SDL releases its one from the Java thread first.
+
+diff --git a/include/rex/ui/surface_android.h b/include/rex/ui/surface_android.h
+--- a/include/rex/ui/surface_android.h
++++ b/include/rex/ui/surface_android.h
+@@ -17,8 +17,11 @@
+ 
+ class AndroidNativeWindowSurface final : public Surface {
+  public:
+-  explicit AndroidNativeWindowSurface(ANativeWindow* window, SDL_Window* sdl_window)
+-      : window_(window), sdl_window_(sdl_window) {}
++  // DBZ3-Android (0049), Dragon Burst 0191: a superficie guarda a sua propria referencia ao ANativeWindow. O SDL
++  // liberta a dele no surfaceDestroyed (thread Java), antes de a thread da UI desligar o presenter; sem esta
++  // referencia o GetSizeImpl lia uma janela ja libertada.
++  explicit AndroidNativeWindowSurface(ANativeWindow* window, SDL_Window* sdl_window);
++  ~AndroidNativeWindowSurface() override;
+   TypeIndex GetType() const override { return kTypeIndex_AndroidNativeWindow; }
+   ANativeWindow* window() const { return window_; }
+ 
+diff --git a/src/ui/surface_android.cpp b/src/ui/surface_android.cpp
+--- a/src/ui/surface_android.cpp
++++ b/src/ui/surface_android.cpp
+@@ -14,6 +14,19 @@
+ namespace rex {
+ namespace ui {
+ 
++AndroidNativeWindowSurface::AndroidNativeWindowSurface(ANativeWindow* window, SDL_Window* sdl_window)
++    : window_(window), sdl_window_(sdl_window) {
++  if (window_) {
++    ANativeWindow_acquire(window_);
++  }
++}
++
++AndroidNativeWindowSurface::~AndroidNativeWindowSurface() {
++  if (window_) {
++    ANativeWindow_release(window_);
++  }
++}
++
+ bool AndroidNativeWindowSurface::GetSizeImpl(uint32_t& width_out, uint32_t& height_out) const {
+   if (window_) {
+     const int32_t w = ANativeWindow_getWidth(window_);
+diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -558,9 +558,26 @@
+       OnPaint(true);
+       break;
+     case SDL_EVENT_WINDOW_MINIMIZED:
++#if REX_PLATFORM_ANDROID
++      // DBZ3-Android (0049), Dragon Burst 0191: a app foi para segundo plano. O Android destroi a superficie
++      // (surfaceDestroyed) e, ao voltar, cria outra com outro ANativeWindow. O presenter continuava preso a
++      // VkSurfaceKHR da janela antiga: na volta vkCreateSwapchainKHR falhava e o jogo caia (SIGSEGV). Desliga-se
++      // ja do presenter; o RESTORED liga-o a janela nova.
++      REXLOG_INFO("dbz3: segundo plano: superficie de apresentacao desligada");
++      OnSurfaceChanged(false);
++#endif
+       OnMinimized(destruction_receiver);
+       break;
+     case SDL_EVENT_WINDOW_RESTORED:
++#if REX_PLATFORM_ANDROID
++      // O SDL so manda o RESTORED (nativeResume) depois do surfaceCreated/surfaceChanged, por isso a propriedade
++      // do ANativeWindow ja aponta para a janela nova.
++      OnSurfaceChanged(true);
++      REXLOG_INFO("dbz3: primeiro plano: superficie de apresentacao {}", HasSurface() ? "recriada" : "indisponivel");
++      if (HasSurface()) {
++        OnPaint(true);
++      }
++#endif
+       OnRestored(destruction_receiver);
+       break;
+     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:

@@ -40,6 +40,22 @@ object NativeGameState {
         }
     }
 
+    /**
+     * Jogo fora da tela (GameActivity: onPause ou superficie destruida): pausa a logica e o audio ja, sem esperar
+     * pelo HelperEngine; false volta ao que os menus pedem.
+     */
+    fun setBackground(background: Boolean) {
+        if (!available) return
+        try {
+            nativeSetBackground(background)
+        } catch (e: UnsatisfiedLinkError) {
+            // libgame.so ainda nao carregado (onResume do arranque): sem jogo nao ha o que pausar
+        }
+    }
+
+    @JvmStatic
+    private external fun nativeSetBackground(background: Boolean)
+
     /** 1 = luta a decorrer, 0 = fora da luta, -1 = desconhecido (jogo ainda a arrancar). */
     fun fightFlag(): Int {
         if (!available) return -1

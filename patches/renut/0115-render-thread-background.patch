@@ -1,0 +1,53 @@
+diff --git a/app/src/renut_engine/gpu/backend/render_thread.cpp b/app/src/renut_engine/gpu/backend/render_thread.cpp
+--- a/app/src/renut_engine/gpu/backend/render_thread.cpp
++++ b/app/src/renut_engine/gpu/backend/render_thread.cpp
+@@ -111,6 +111,7 @@
+ std::thread::id g_thread_id;
+ bool g_running = false;   // the thread takes work
+ bool g_stopping = false;  // Stop: finish what is queued, then end
++bool g_background = false;  // Dragon Burst (renut/0115): SetBackground
+ uint64_t g_items_queued = 0;
+ uint64_t g_items_done = 0;
+ uint64_t g_frames_queued = 0;
+@@ -167,8 +168,12 @@
+       g_render_waiting = true;
+       if (WakeBatch() > 1) {
+         // sa2-nx (sa2_renut_wake_batch): draws queued without a wake are taken within 2 ms at the latest.
+-        while (g_queue.empty() && !g_stopping)
+-          g_work_cv.wait_for(lock, std::chrono::milliseconds(2));
++        while (g_queue.empty() && !g_stopping) {
++          if (g_background)  // Dragon Burst (renut/0115): no polling in the background
++            g_work_cv.wait(lock, [] { return !g_queue.empty() || g_stopping || !g_background; });
++          else
++            g_work_cv.wait_for(lock, std::chrono::milliseconds(2));
++        }
+       } else {
+         g_work_cv.wait(lock, [] { return !g_queue.empty() || g_stopping; });
+       }
+@@ -490,6 +495,14 @@
+     g_waited += Clock::now() - start_;
+ }
+ 
++void SetBackground(bool background) {
++  {
++    std::lock_guard lock(g_mutex);
++    g_background = background;
++  }
++  g_work_cv.notify_all();
++}
++
+ void Stop() {
+   {
+     std::lock_guard lock(g_mutex);
+diff --git a/app/src/renut_engine/gpu/backend/render_thread.h b/app/src/renut_engine/gpu/backend/render_thread.h
+--- a/app/src/renut_engine/gpu/backend/render_thread.h
++++ b/app/src/renut_engine/gpu/backend/render_thread.h
+@@ -91,4 +91,8 @@
+ // for the overlay). Work queued afterwards runs on the calling thread.
+ void Stop();
+ 
++// Dragon Burst (Android, renut/0115): with the app in the background the thread waits for work without the 2 ms
++// wake-ups of sa2_renut_wake_batch (nothing is drawn: the game is stopped).
++void SetBackground(bool background);
++
+ } // namespace renut::gpu::render_thread

@@ -24,6 +24,7 @@ Desempenho
 - RG Cube (Mali-G57) com o Renut e "Tela" (360p): 60 FPS na luta e na campanha (antes 22-24 FPS a 720p).
 - Retroid Pocket 5 com o Renut, driver do sistema: 720p a 60 FPS estáveis na luta e na campanha (GPU 11 ms por quadro; antes até 60 com quedas para 47-50).
 - Perfil 480+ do Retroid Pocket 5 (GPU limitada): 60 FPS a 480p e a 540p, na luta e na campanha. Nos upscales grandes (540p ou 480p numa tela 1080p) o FSR vai até 720p e o resto é bilinear, o que poupa quase metade da GPU por quadro.
+- O jogo pausa quando sai da tela (menos bateria e calor): HOME, recentes ou tela desligada param a luta, o desenho e o som, e na volta ele continua de onde estava.
 
 Arquivos do jogo
 - O código do jogo vem cifrado no APK e só se abre com o default.xex do seu disco. Quem atualiza da 0.1.x não precisa importar de novo: no primeiro JOGAR o app prepara o código a partir do jogo já importado (com barra de progresso), e os saves e as opções ficam.
@@ -43,6 +44,7 @@ Performance
 - RG Cube (Mali-G57) with the Renut and "Screen" (360p): 60 FPS in fights and in the campaign (was 22-24 FPS at 720p).
 - Retroid Pocket 5 with the Renut, system driver: a steady 60 FPS at 720p in fights and in the campaign (11 ms of GPU a frame; was up to 60 with drops to 47-50).
 - Retroid Pocket 5 480+ profile (GPU limited): 60 FPS at 480p and at 540p, in fights and in the campaign. On large upscales (540p or 480p on a 1080p screen) FSR goes up to 720p and the rest is bilinear, which saves almost half of the GPU time a frame.
+- The game pauses when it leaves the screen (less battery and heat): Home, recents or the screen going off stop the fight, the drawing and the sound, and it carries on from where it was when you come back.
 
 Game files
 - The game code ships encrypted in the APK and only opens with your disc's default.xex. Updating from 0.1.x needs no new import: on the first PLAY the app prepares the code from the game you already imported (with a progress bar), and your saves and options stay.
@@ -62,6 +64,7 @@ Rendimiento
 - RG Cube (Mali-G57) con el Renut y "Pantalla" (360p): 60 FPS en combate y en la campaña (antes 22-24 FPS a 720p).
 - Retroid Pocket 5 con el Renut, driver del sistema: 720p a 60 FPS estables en combate y en la campaña (11 ms de GPU por cuadro; antes hasta 60 con caídas a 47-50).
 - Perfil 480+ de la Retroid Pocket 5 (GPU limitada): 60 FPS a 480p y a 540p, en combate y en la campaña. En los escalados grandes (540p o 480p en una pantalla 1080p) el FSR llega hasta 720p y el resto es bilineal, lo que ahorra casi la mitad de la GPU por cuadro.
+- El juego se pausa cuando sale de la pantalla (menos batería y calor): Inicio, recientes o la pantalla apagada detienen el combate, el dibujo y el sonido, y al volver sigue donde estaba.
 
 Archivos del juego
 - El código del juego va cifrado en el APK y solo se abre con el default.xex de tu disco. Al actualizar desde la 0.1.x no hace falta importar de nuevo: en el primer JUGAR la app prepara el código a partir del juego ya importado (con barra de progreso), y las partidas guardadas y las opciones se mantienen.

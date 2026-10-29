@@ -1,0 +1,126 @@
+Dragon Burst 0189: guest waits for the app while it is in the background
+
+The app (Android) sets rex_background_wait, defined in the runtime next to rex_vdswap_hook (the xenos plugin is loaded
+at run time). It waits while the game is off screen and says whether it waited. Called by the vsync worker before
+each round (when it waited, the vblanks are counted again from then on, so the time spent stopped is not fired as a
+burst of interrupts), by the command processor's idle loop instead of its 5 ms waits and before a WAIT_REG_MEM wait
+(the vblank or the game it waits for does not come while stopped), and at the start of KeDelayExecutionThread and
+NtYieldExecution, so guest threads that poll with sleeps or yields stop too. nullptr on the PC: nothing changes.
+
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -107,6 +107,11 @@
+                     "pipelines are being prepared.")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// Dragon Burst (0189): xboxkrnl_video.cpp (o runtime; este plugin e carregado em tempo de execucao).
++extern "C" {
++extern bool (*rex_background_wait)(void);
++}
++
+ namespace rex::graphics {
+ 
+ // DBZ3 (v1.4.1): microssegundos que o command processor passa a dormir em WAIT_REG_MEM
+@@ -261,6 +266,10 @@
+       do {
+         // If we spin around too much, revert to a "low-power" state.
+         if (loop_count > 500) {
++          // Dragon Burst (0189): fora da tela o jogo nao manda nada; espera a volta sem as voltas de 5 ms.
++          if (rex_background_wait) {
++            rex_background_wait();
++          }
+           const int wait_time_ms = 5;
+           rex::thread::Wait(write_ptr_index_event_.get(), true,
+                             std::chrono::milliseconds(wait_time_ms));
+@@ -1339,6 +1348,10 @@
+     if (!matched) {
+       // Wait.
+       if (wait >= 0x100) {
++        // Dragon Burst (0189): fora da tela o que se espera (o vblank, o jogo) nao chega; espera a volta.
++        if (rex_background_wait) {
++          rex_background_wait();
++        }
+         const auto dbz3_wait_start = std::chrono::steady_clock::now();
+         PrepareForWait();
+         const uint64_t guest_interval_us = uint64_t(wait / 0x100) * 1000;
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -93,6 +93,16 @@
+ 
+ GraphicsSystem::GraphicsSystem() : vsync_worker_running_(false) {}
+ 
++}  // namespace rex::graphics
++
++// Dragon Burst (0189): o app (Android) para aqui o vsync enquanto o jogo esta fora da tela; devolve se esperou.
++// Definido no runtime (xboxkrnl_video.cpp, ao lado do rex_vdswap_hook): este plugin e carregado em tempo de execucao.
++extern "C" {
++extern bool (*rex_background_wait)(void);
++}
++
++namespace rex::graphics {
++
+ GraphicsSystem::~GraphicsSystem() = default;
+ 
+ X_STATUS GraphicsSystem::SetupPresentation(ui::WindowedAppContext* app_context) {
+@@ -221,6 +231,10 @@
+               rex::system::Dbz3LogKernelWaits(3.0);
+             }
+           }
++          // Dragon Burst (0189): sem vblanks fora da tela; na volta conta a partir dali (sem a rajada do tempo parado).
++          if (rex_background_wait && rex_background_wait()) {
++            last_frame_time = chrono::Clock::QueryGuestTickCount();
++          }
+           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
+           const double game_rate_hz = rex::graphics::GetGuestVblankRate();
+           uint64_t interval_ticks;
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
+--- a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
+@@ -47,6 +47,11 @@
+                      "core back. Delays the spinner's reaction to new work by up to as much. "
+                      "0 - off.");
+ 
++// Dragon Burst (0189): xboxkrnl_video.cpp. Fora da tela as threads do jogo que dormem ou cedem a vez param ali.
++extern "C" {
++extern bool (*rex_background_wait)(void);
++}
++
+ namespace rex::kernel::xboxkrnl {
+ using namespace rex::system;
+ using rex::runtime::current_ppc_context;
+@@ -382,6 +387,9 @@
+ }
+ 
+ u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 interval_ptr) {
++  if (rex_background_wait) {
++    rex_background_wait();
++  }
+   XThread* thread = XThread::GetCurrentThread();
+ 
+   if (alertable) {
+@@ -398,6 +406,9 @@
+ }
+ 
+ u32 NtYieldExecution_entry() {
++  if (rex_background_wait) {
++    rex_background_wait();
++  }
+   // guest_yield_sleep_us: a spin-wait is a long run of yields close together;
+   // a thread back from doing work between them starts a new run.
+   const int32_t sleep_us = REXCVAR_GET(guest_yield_sleep_us);
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_video.cpp b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+--- a/src/kernel/xboxkrnl/xboxkrnl_video.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+@@ -426,6 +426,10 @@
+ // depende de enderecos de um jogo. nullptr no PC.
+ extern "C" {
+ void (*rex_vdswap_hook)(void) = nullptr;
++// Dragon Burst (0189): o app (Android) para aqui enquanto o jogo esta fora da tela e devolve se esperou. Chamado pelo
++// vsync do GraphicsSystem (plugin xenos) a cada volta e pelas esperas do guest (KeDelayExecutionThread,
++// NtYieldExecution). nullptr no PC.
++bool (*rex_background_wait)(void) = nullptr;
+ }
+ 
+ namespace rex::kernel::xboxkrnl {

@@ -1,0 +1,31 @@
+Dragon Burst game 0008: the wait for the GPU stops while the app is in the background
+
+sub_820B10E8 (every D3D wait for the GPU, in a loop) slept 250 us at a time; with the app off screen the GPU is
+stopped too (SDK 0189), so the render thread woke about 3000 times a second for nothing. It now waits in
+rex_background_wait until the app is back, and starts a new wait from there.
+
+diff --git a/src/burstlimit_patches.cpp b/src/burstlimit_patches.cpp
+--- a/src/burstlimit_patches.cpp
++++ b/src/burstlimit_patches.cpp
+@@ -889,6 +889,11 @@
+ extern "C" void renut_native_sub_820B10E8(PPCContext& ctx, uint8_t* base);
+ #endif
+ 
++// Dragon Burst (Android, SDK 0189): fora da tela a espera pela GPU para ali ate a volta (a GPU tambem esta parada).
++extern "C" {
++extern bool (*rex_background_wait)(void);
++}
++
+ REX_EXTERN(__imp__sub_820B10E8);
+ extern "C" REX_FUNC(sub_820B10E8) {
+ #if defined(DB_RENUT)
+@@ -902,6 +907,9 @@
+     __imp__sub_820B10E8(ctx, base);
+     return;
+   }
++  if (rex_background_wait && rex_background_wait()) {
++    t_gpu_wait.wait = 0;  // a new wait from here
++  }
+   // r3: the wait's state (+0 the D3D device, +20 mftb when it started).
+   const uint32_t wait = ctx.r3.u32;
+   const uint32_t start = rex::memory::load_and_swap<uint32_t>(base + wait + 20);

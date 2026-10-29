@@ -15,6 +15,7 @@
 #include <jni.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cmath>
@@ -38,6 +39,11 @@
 extern std::atomic<bool> g_dragonburst_pause;
 extern std::mutex g_dragonburst_pause_mu;
 extern std::condition_variable g_dragonburst_pause_cv;
+extern std::atomic<bool> g_dragonburst_parked;
+extern std::atomic<bool> g_dragonburst_background;
+// renut/renut_glue.cpp (so com o Renut compilado, DB_RENUT).
+extern "C" __attribute__((weak)) void dragonburst_renut_background(bool background);
+extern std::atomic<uint64_t> g_dragonburst_ticks;
 
 namespace {
 
@@ -74,7 +80,9 @@ uint32_t BattleAddress(rex::memory::Memory* memory) {
 }
 
 std::mutex g_pause_mu;
-bool g_paused = false;
+bool g_paused = false;      // pausa aplicada: logica parada no tick e audio parado
+bool g_menu_pause = false;  // pedida pelos menus (HelperEngine, nativeSyncPause)
+bool g_background = false;  // jogo fora da tela (GameActivity: onPause ou superficie destruida)
 
 }  // namespace
 
@@ -133,16 +141,14 @@ Java_com_dfdx047_dragonburst_game_NativeGameState_nativeP1Side(JNIEnv*, jclass) 
 // (android_hooks.cpp, chamado pelo BurstLimitCameraFrame) e o audio com
 // AudioSystem::Pause(). O Kotlin chama isto a cada tick do HelperEngine (60 Hz).
 // ---------------------------------------------------------------------------
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_dfdx047_dragonburst_game_NativeGameState_nativeSyncPause(JNIEnv*, jclass, jboolean overlay_open,
-                                                                  jboolean pause_quick_menu) {
-  std::lock_guard<std::mutex> lock(g_pause_mu);
+namespace {
+// Aplica g_menu_pause || g_background (com g_pause_mu): a logica para no ponto de pausa do tick e o audio com
+// AudioSystem::Pause(). Sem runtime ainda (arranque) so a logica: o audio nao existe.
+void ApplyPauseLocked() {
+  const bool want = g_menu_pause || g_background;
+  if (want == g_paused) return;
   auto* rt = rex::Runtime::instance();
-  if (!rt || !rt->memory()) return JNI_FALSE;
-  const bool want = overlay_open || (pause_quick_menu && rex::ui::QuickMenuDialog::IsOpen());
-  if (want == g_paused) return g_paused ? JNI_TRUE : JNI_FALSE;
-
-  auto* audio = static_cast<rex::audio::AudioSystem*>(rt->audio_system());
+  auto* audio = rt ? static_cast<rex::audio::AudioSystem*>(rt->audio_system()) : nullptr;
   if (want) {
     g_dragonburst_pause.store(true, std::memory_order_release);
     if (audio) audio->Pause();
@@ -155,7 +161,61 @@ Java_com_dfdx047_dragonburst_game_NativeGameState_nativeSyncPause(JNIEnv*, jclas
     g_dragonburst_pause_cv.notify_all();
   }
   g_paused = want;
+}
+}  // namespace
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dfdx047_dragonburst_game_NativeGameState_nativeSyncPause(JNIEnv*, jclass, jboolean overlay_open,
+                                                                  jboolean pause_quick_menu) {
+  std::lock_guard<std::mutex> lock(g_pause_mu);
+  auto* rt = rex::Runtime::instance();
+  if (!rt || !rt->memory()) return JNI_FALSE;
+  g_menu_pause = overlay_open || (pause_quick_menu && rex::ui::QuickMenuDialog::IsOpen());
+  ApplyPauseLocked();
   return g_paused ? JNI_TRUE : JNI_FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// Jogo fora da tela (HOME, recentes, tela desligada): a pausa dos menus, ja (o HelperEngine para no onPause), e alem
+// dela a thread de render do jogo para no Swap e o VBlank do Renut e o vsync do Xenia param (android_hooks.cpp): o
+// render thread do Renut e o command processor do Xenia ficam sem trabalho, nada e apresentado. O SDL para o audio e
+// a thread da UI (SDL_HINT_ANDROID_BLOCK_ON_PAUSE). Na volta o jogo continua do mesmo tick; o swapchain novo para a
+// janela nova e do Renut (renut/0008) e do SDK.
+// ---------------------------------------------------------------------------
+namespace {
+std::chrono::steady_clock::time_point g_background_since;
+uint64_t g_background_ticks = 0;
+uint64_t g_background_shown = 0;  // quadros que chegam a tela (Renut e Xenia, rex::perf::GetPresentStats().shown)
+}  // namespace
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_dfdx047_dragonburst_game_NativeGameState_nativeSetBackground(JNIEnv*, jclass, jboolean background) {
+  std::lock_guard<std::mutex> lock(g_pause_mu);
+  if (bool(background) == g_background) return;
+  g_background = background;
+  ApplyPauseLocked();
+  {
+    std::lock_guard<std::mutex> l(g_dragonburst_pause_mu);
+    g_dragonburst_background.store(g_background, std::memory_order_release);
+  }
+  g_dragonburst_pause_cv.notify_all();
+  if (dragonburst_renut_background) dragonburst_renut_background(g_background);
+  const uint64_t ticks = g_dragonburst_ticks.load(std::memory_order_relaxed);
+  if (g_background) {
+    g_background_since = std::chrono::steady_clock::now();
+    g_background_ticks = ticks;
+    g_background_shown = rex::perf::GetPresentStats().shown.load(std::memory_order_relaxed);
+    REXLOG_INFO("dbz3: segundo plano: jogo em pausa (tick {}, ja parado: {})", ticks,
+                g_dragonburst_parked.load(std::memory_order_acquire));
+  } else {
+    const double s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - g_background_since).count();
+    // 1 tick no maximo: o que estava a meio quando a pausa chegou; idem os quadros (o que ja ia na fila).
+    const uint64_t shown = rex::perf::GetPresentStats().shown.load(std::memory_order_relaxed);
+    REXLOG_INFO("dbz3: primeiro plano depois de {:.1f} s: {} ticks do jogo e {} quadros mostrados na pausa{}", s,
+                ticks - g_background_ticks, shown - g_background_shown,
+                g_paused ? " (continua em pausa pelo menu)" : "");
+  }
 }
 
 /** Ao sair do jogo: nunca deixar a thread do jogo presa na pausa. */
@@ -190,8 +250,13 @@ Java_com_dfdx047_dragonburst_game_NativeGameState_nativeGpuLost(JNIEnv*, jclass)
 extern "C" JNIEXPORT void JNICALL
 Java_com_dfdx047_dragonburst_game_NativeGameState_nativeForceResume(JNIEnv*, jclass) {
   {
+    std::lock_guard<std::mutex> lock(g_pause_mu);
+    g_menu_pause = g_background = g_paused = false;
+  }
+  {
     std::lock_guard<std::mutex> l(g_dragonburst_pause_mu);
     g_dragonburst_pause.store(false, std::memory_order_release);
+    g_dragonburst_background.store(false, std::memory_order_release);
   }
   g_dragonburst_pause_cv.notify_all();
 }

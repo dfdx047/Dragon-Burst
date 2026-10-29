@@ -24,6 +24,7 @@
 #include <rex/logging.h>
 
 #include "renut_engine/gpu/sa2_renut_yield.h"
+#include "renut_engine/gpu/backend/render_thread.h"
 
 REXCVAR_DECLARE(std::string, present_effect);  // SDK (ui/presenter.cpp)
 REXCVAR_DECLARE(std::string, swordman_renut_bc_decode);  // Renut (renut/0020): texturas BC sem suporte do driver
@@ -46,9 +47,15 @@ extern "C" void (*rex_vdswap_hook)(void);
 void SwordManRenutShotOnSwap();          // abaixo
 void SwordManRenutOverlayStatsOnSwap();  // abaixo
 void SwordManRenutPlaceMainThreadOnSwap();  // abaixo
+bool DragonBurstWaitForeground();  // android_hooks.cpp: para enquanto o jogo esta fora da tela (VBlank abaixo)
 namespace {
 void StartVBlank();  // abaixo
 }  // namespace
+
+// Jogo fora da tela (game_state_jni.cpp, nativeSetBackground): o render thread do Renut espera sem acordar a cada 2 ms.
+extern "C" void dragonburst_renut_background(bool background) {
+  renut::gpu::render_thread::SetBackground(background);
+}
 
 REX_EXTERN(__imp__sub_820B64C0);
 REX_HOOK_RAW(sub_820B64C0) {  // D3DDevice_Swap (BL; MGR sub_826B3510)
@@ -148,6 +155,7 @@ int VBlankThreadMain() {
   auto* thread = rex::system::XThread::GetCurrentThread();
   for (;;) {
     std::this_thread::sleep_until(next);
+    if (DragonBurstWaitForeground()) next = clock::now();
     interval = VBlankInterval();
     next += interval;
     // Atrasado mais de 4 vblanks (thread suspensa): retoma a partir de agora, sem rajada.
@@ -191,6 +199,9 @@ REX_HOOK_RAW(sub_822A2E50) {  // SignalObjectAndWait do jogo (r5 = timeout em ms
     const uint64_t timeouts = g_handshake_timeouts.fetch_add(1, std::memory_order_relaxed) + 1;
     if ((timeouts & (timeouts - 1)) == 0)  // 1, 2, 4, 8...
       REXLOG_INFO("Renut: handshake da frame, {} timeouts em {} esperas", timeouts, waits);
+    // Fora da tela a outra thread esta parada (no Swap ou no tick): sem voltar a cada 8 ms. Aqui o mutex ja foi
+    // libertado e o chamador volta a ver a condicao depois.
+    DragonBurstWaitForeground();
   }
 }
 

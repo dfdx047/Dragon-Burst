@@ -1,0 +1,77 @@
+Dragon Burst 0190: the online transport's timer waits instead of polling every 1 ms
+
+On POSIX Transport::TimerLoop slept 1 ms at a time even with no job queued: about 1000 wake-ups a second for the
+whole session, offline too and with the app in the background. It now waits on a condition variable until the next
+job is due or a new one is queued (SendWire and SendWireDeferred notify it). Windows is unchanged.
+
+diff --git a/src/system/net/peer_transport.cpp b/src/system/net/peer_transport.cpp
+--- a/src/system/net/peer_transport.cpp
++++ b/src/system/net/peer_transport.cpp
+@@ -873,6 +873,8 @@
+   }
+ #if defined(_WIN32)
+   SetEvent(static_cast<HANDLE>(wake_));
++#else
++  timer_cv_.notify_one();
+ #endif
+ }
+ 
+@@ -909,6 +911,8 @@
+   }
+ #if defined(_WIN32)
+   SetEvent(static_cast<HANDLE>(wake_));
++#else
++  timer_cv_.notify_one();
+ #endif
+ }
+ 
+@@ -917,8 +921,10 @@
+     std::vector<Job> ready;
+     int64_t wait_us = -1;
+     const int64_t now = NowUs();
++    uint64_t seen_order = 0;
+     {
+       std::lock_guard<std::mutex> lock(timer_mutex_);
++      seen_order = job_order_;
+       while (!jobs_.empty() && jobs_.front().due_us <= now) {
+         std::pop_heap(jobs_.begin(), jobs_.end(), std::greater<Job>());
+         ready.push_back(std::move(jobs_.back()));
+@@ -957,8 +963,17 @@
+       WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+     }
+ #else
+-    std::this_thread::sleep_for(std::chrono::microseconds(
+-        wait_us < 0 ? 1000 : std::min<int64_t>(wait_us, 1000)));
++    // Dragon Burst (0190): until the next job is due or a new one is queued (SendWire*, notify_one). It polled every
++    // 1 ms, about 1000 wake-ups a second with nothing to send (offline, and with the app in the background).
++    {
++      std::unique_lock<std::mutex> lock(timer_mutex_);
++      const auto queued = [this, seen_order] { return job_order_ != seen_order; };
++      if (wait_us < 0) {
++        timer_cv_.wait(lock, queued);
++      } else {
++        timer_cv_.wait_for(lock, std::chrono::microseconds(wait_us), queued);
++      }
++    }
+ #endif
+   }
+ }
+diff --git a/src/system/net/peer_transport.h b/src/system/net/peer_transport.h
+--- a/src/system/net/peer_transport.h
++++ b/src/system/net/peer_transport.h
+@@ -15,6 +15,7 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <condition_variable>
+ #include <cstdint>
+ #include <functional>
+ #include <memory>
+@@ -238,6 +239,7 @@
+   std::mutex timer_mutex_;
+   std::vector<Job> jobs_;  // min-heap
+   uint64_t job_order_ = 0;
++  std::condition_variable timer_cv_;  // POSIX (Dragon Burst 0190): a queued job wakes TimerLoop
+   void* timer_ = nullptr;
+   void* wake_ = nullptr;
+   bool high_resolution_ = false;
