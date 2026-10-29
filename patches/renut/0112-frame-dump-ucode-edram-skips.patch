@@ -1,0 +1,127 @@
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -88,8 +88,8 @@
+ REXCVAR_DEFINE_BOOL(swordman_renut_draw_resolves, false, "SwordMan",
+                     "Renut (Vulkan): colour resolves drawn into the texture instead of copied (same bits)");
+ REXCVAR_DEFINE_STRING(swordman_renut_diag_vs, "", "SwordMan",
+-                      "Dragon Burst (diagnostic): vertex shader hash (hex, first 8 digits) whose vertex layouts and "
+-                      "patched vfetches are logged");
++                      "Dragon Burst (diagnostic): vertex shader hashes (hex, first 8 digits, comma separated) whose "
++                      "vertex layouts and patched vfetches are logged");
+ REXCVAR_DEFINE_STRING(swordman_renut_skip_ps, "", "SwordMan",
+                       "Renut (diagnostic): pixel shader hashes (hex, comma separated) whose draws are skipped")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+@@ -4288,8 +4288,12 @@
+   // picture through its replaced constant. The options' blur is not the renderer's to draw.
+   const rex::graphics::PixelShaderDrawOverride *ps_override =
+       ps && ps->ucode_hash ? rex::graphics::FindPixelShaderDrawOverride(ps->ucode_hash) : nullptr;
+-  if (ps_override && ps_override->skip)
++  if (ps_override && ps_override->skip) {
++    if (swordman::frame_dump::On() && swordman::frame_dump::Active(TextureFrameLocked()))
++      swordman::frame_dump::Line(fmt::format("S ps {:016X} u {:016X} (draw override: skipped)", ps->hash,
++                                             ps->ucode_hash));
+     return true;
++  }
+   if (REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0) {
+     static std::unordered_set<uint64_t> census;
+     // Dragon Burst (2026-10-28, particles as squares): per pixel shader and primitive type, so a point list after the
+@@ -4361,10 +4365,18 @@
+                 declaration ? declaration->layout.used_mask : 0);
+   }
+   if (vs && !REXCVAR_GET(swordman_renut_diag_vs).empty()) {  // Dragon Burst (diagnostic)
+-    static const u32 target = u32(std::strtoul(REXCVAR_GET(swordman_renut_diag_vs).c_str(), nullptr, 16));
++    static const std::unordered_set<u32> targets = [] {
++      std::unordered_set<u32> out;
++      for (const char *p = REXCVAR_GET(swordman_renut_diag_vs).c_str(); *p;) {
++        char *end = nullptr;
++        out.insert(u32(std::strtoul(p, &end, 16)));
++        p = *end ? end + 1 : end;
++      }
++      return out;
++    }();
+     static std::unordered_set<uint64_t> seen_layouts;
+-    if (u32(vs->hash >> 32) == target && declaration && seen_layouts.size() < 16 &&
+-        seen_layouts.insert(declaration->layout_hash ^ (uint64_t(declaration_va) << 32)).second) {
++    if (targets.count(u32(vs->hash >> 32)) && declaration && seen_layouts.size() < 64 &&
++        seen_layouts.insert(declaration->layout_hash ^ (uint64_t(declaration_va) << 32) ^ vs->hash).second) {
+       const u32 vs_va = device.U32(d3d::kDeviceOffsetVertexShader);
+       std::string elements;
+       for (const GuestVertexElement &e : declaration->elements) {
+@@ -5229,7 +5241,9 @@
+               literal[0], literal[1], literal[2], literal[3], ps_alloc ? ps_alloc.size : 0u,
+               in_upload ? "" : "(not in it) ", uploaded[0], uploaded[1], uploaded[2], uploaded[3]);
+     // The characters' toon shader, the linear depth and the motion blur: c0-c8 and c254 as the device has them.
+-    if (ps->hash == 0x8E5E328AC8EA3309ull || ps->hash == 0xE2223552B478AE8Full || ps->hash == 0xFE8B85F12835546Dull) {
++    // Dragon Burst (2026-10-29): and D95AFF9F (the loading screen's dragon balls, mode / light / ambient in c0-c2).
++    if (ps->hash == 0x8E5E328AC8EA3309ull || ps->hash == 0xE2223552B478AE8Full || ps->hash == 0xFE8B85F12835546Dull ||
++        ps->hash == 0xD95AFF9F7A0CF78Cull) {
+       for (u32 r : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 254u}) {
+         const auto c = floats(ps_constants.Register(r), true);
+         RGPU_INFO("[drawlog]   ps {:016X} c{}: device {} {} {} {}", ps->hash, r, c[0], c[1], c[2], c[3]);
+@@ -5238,14 +5252,19 @@
+   }
+   // SwordMan (Android): one frame of draws, clears and resolves (swordman_renut_frame_dump, src/renut_frame_dump.h).
+   if (swordman::frame_dump::On() && swordman::frame_dump::Active(TextureFrameLocked())) {
+-    std::string line = fmt::format("D vs {:016X} ps {:016X} prim {} n {} inst {} |", vs ? vs->hash : 0,
+-                                   ps ? ps->hash : 0, call.primitive,
++    // Dragon Burst (2026-10-28): the ucode hash too (the emulated path's, draw overrides) and each target's EDRAM base.
++    std::string line = fmt::format("D vs {:016X} ps {:016X} u {:016X} prim {} n {} inst {} |", vs ? vs->hash : 0,
++                                   ps ? ps->hash : 0, ps ? ps->ucode_hash : 0, call.primitive,
+                                    geometry.indexed ? geometry.index_count : geometry.vertex_count,
+                                    geometry.instance_count);
+     for (u32 i = 0; i < targets.color_count; ++i)
+-      if (targets.colors[i])
+-        line += fmt::format(" c{} {:08X} {}x{} f{}", i, targets.colors[i]->guest_va, targets.colors[i]->width,
++      if (targets.colors[i]) {
++        const auto *desc = GuestPtr<const d3d::SurfaceDesc>(device.U32(d3d::kDeviceOffsetRenderTargets + i * 4) +
++                                                            sizeof(d3d::Resource));
++        line += fmt::format(" c{} {:08X} e{:03X} {}x{} f{}", i, targets.colors[i]->guest_va,
++                            desc ? u32(desc->ColorInfo) & 0xFFF : 0xFFFu, targets.colors[i]->width,
+                             targets.colors[i]->height, int(targets.colors[i]->format));
++      }
+     if (targets.depth)
+       line += fmt::format(" z {:08X} {}x{} f{}", targets.depth->guest_va, targets.depth->width,
+                           targets.depth->height, int(targets.depth->format));
+@@ -5258,6 +5277,25 @@
+       line += t ? fmt::format(" t{} {:08X} {}x{} g{}", r, va, t->width, t->height, int(t->guest_format))
+                 : fmt::format(" t{} {:08X}", r, va);
+     }
++    // Dragon Burst (2026-10-29): otherwise stream 0's first 32 bytes as the fetch constant names them.
++    if (!call.up_vertices) {
++      const u32 w0 = device.VertexFetchWord(d3d::kFirstVertexFetchIndex + d3d::StreamFetchIndex(0), 0);
++      if (const u8 *p = (w0 & ~3u) ? GuestPhysicalPtr<const u8>(w0 & ~3u) : nullptr) {
++        line += fmt::format(" | s0 {:08X}:", w0 & ~3u);
++        for (u32 k = 0; k < 32; ++k)
++          line += fmt::format("{}{:02X}", k % 4 ? "" : " ", p[k]);
++      }
++    }
++    // Dragon Burst (2026-10-29): a Begin/DrawVerticesUP draw's first two vertices, as big-endian floats.
++    if (call.up_vertices && call.up_stride >= 4 && call.up_vertex_count >= 2) {
++      line += fmt::format(" | up stride {}", call.up_stride);
++      for (u32 v = 0; v < 2; ++v) {
++        line += " v:";
++        for (u32 k = 0; k < std::min(call.up_stride / 4, 12u); ++k)
++          line += fmt::format(" {:.3g}", std::bit_cast<float>(
++                                             u32(*reinterpret_cast<const be_u32 *>(call.up_vertices + v * call.up_stride + k * 4))));
++      }
++    }
+     swordman::frame_dump::Line(line);
+   }
+ #if defined(MGR_RENUT_RENDERER)
+@@ -6093,8 +6131,13 @@
+   if (swordman::frame_dump::On() && surface && swordman::frame_dump::Active(TextureFrameLocked())) {
+     const ClearRect r = source_rect ? *source_rect : ClearRect{0, 0, -1, -1};
+     swordman::frame_dump::Line(fmt::format(
+-        "R {} {:08X} {}x{} f{} -> {:08X} at {},{} level {} slice {} rect {},{}-{},{} flags {:X}",
+-        surface->depth ? "depth" : "color", source_va, surface->width, surface->height, int(surface->format),
++        "R {} {:08X} e{:03X} {}x{} f{} -> {:08X} at {},{} level {} slice {} rect {},{}-{},{} flags {:X}",
++        surface->depth ? "depth" : "color", source_va,
++        [&] {
++          const auto *desc = GuestPtr<const d3d::SurfaceDesc>(source_va + sizeof(d3d::Resource));
++          return desc ? u32(desc->ColorInfo) & 0xFFF : 0xFFFu;
++        }(),
++        surface->width, surface->height, int(surface->format),
+         dest_texture_va, dest_x, dest_y, dest_level, dest_slice, r.x1, r.y1, r.x2, r.y2, flags));
+   }
+   if (banjo::renut_gpu::ResolveTraceOn() && surface) {

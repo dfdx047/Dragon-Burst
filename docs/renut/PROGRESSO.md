@@ -382,3 +382,21 @@ shader recompilado guarda o swizzle do contentor, e o caminho das vfetches nao t
 troca, `BoundDeclType`/`UnswapHalves`): a normal e o uv chegavam trocados ao toon, logo a rampa caia no cinzento. Com
 os formatos 16_16, 16_16_16_16 e os seus FLOAT marcados 8in16 (como a declaracao do mesmo tipo), o host liga `swap 1`
 nesses elementos e o cabelo do Goku e do Raditz fica preto na luta e na campanha, no Cube e no RP5, igual ao Xenia.
+
+**Quadrados e bolas do loading (item 2): corrigido (renut/0113).** Reproducao deterministica: no ecra "Now Loading"
+as esferas de dragao saem no Renut vermelhas, verdes e escuras as manchas, e no Xenia laranja translucidas. Pelo censo
+do dump em anel (`swordman_renut_frame_dump_ring`, novo, gravado ao pedido `files/frame_dump.req`) e por
+`swordman_renut_skip_ps` as esferas sao VS DEE2E6E2 + PS 9C79B65D (14 draws por frame, sphere map), nao o D95AFF9F
+(saltado, as esferas ficam). O PS multiplica o resultado pela cor do vertice, e essa cor chegava com a normal. As
+vfetches remendadas do VS (diag com o registo de destino) contam a historia: o shader compilado le posicao, cor, uv e
+normal (@003-@006, e a tabela de elementos do contentor diz isso por endereco), mas o D3D do jogo, ao ligar o shader a
+uma declaracao, reordena as vfetches por offset na stream: @004 passa a escrever r4 com o FLOAT16_4 em +12 (a normal),
+@005 r1 com o 8888 em +20 (a cor), @006 r0.zw com o FLOAT16_2 em +24 (o uv). Lendo pelo endereco da tabela, o Renut
+dava ao shader recompilado (que e o da ordem compilada: r1 = cor) a normal como cor, a cor como uv e o uv como normal.
+O Xenia corre a microcode remendada e nao depende da tabela. Agora o `XGRegisterVertexShader` guarda, antes de
+qualquer bind, o que cada elemento escreve (registo e componentes), e cada elemento usa a vfetch remendada que escreve
+o mesmo. As palavras sao lidas tambem no thread do jogo quando o draw e posto na fila (`DrawCall::fetch_words`): o
+mesmo VS e ligado a outras declaracoes no mesmo frame e o render thread lia o remendo de um bind posterior. Sem
+efeito (anotado): decode BC na CPU (`swordman_renut_bc_decode = "cpu"`), so o nivel 0 quando nao ha endereco de mips,
+o mapa de direcao BC879F9A (desenha no alvo da cena e e composto a seguir, legitimamente), o reuso de cadeia
+(compara layout_hash) e cache de vfetch velha (rele as palavras a cada draw).
