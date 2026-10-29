@@ -592,3 +592,19 @@ sentinel com a dica publica `SDL_HINT_POLL_SENTINEL` no inicio do ciclo (o SDL n
 `SDL_PollEvent`. t38: Cube Renut luta 48,5/41,4 e campanha 53,1/44,1 (GPU 16 ms, limitado pela GPU como antes), Cube
 Xenia luta 30,3/26,2 a pintar normalmente; RP5 luta 60,0/59,9 (GPU 8,5 ms) e campanha 60,0/59,9. O toml do RP5 mudou
 as 19:41 fora destes testes (de 30 para 60 FPS, md5 6de1f04f): fica como esta.
+
+### B no Odin 3 por Wi-Fi (29/10, 19:55-21:45, carregador de parede)
+
+O Odin 3 voltou por USB e passou para o adb por Wi-Fi (`adb tcpip 5555`, 192.168.1.134), para carregar na parede.
+
+- B3, Xenia desbloqueado a 720p: o jogo vai a 700-800 FPS (game_fps), a tela fica nos 60 (presented_fps 59,9).
+- B4, 120 interpolado: Renut a 1080p, jogo a 60 e 117 na tela, 14051 quadros gerados na luta e 15245 na campanha,
+  0 por gerar, GPU 7,8-8,5 ms; Xenia a 720p, 120,2 na tela, 1 por gerar por corrida, 0,41 ms de GPU por quadro gerado.
+- B5, 15 min a 1080p/120 nativo: com a t36 a luta fez 93,5/59,2 e a campanha 83,7/57,6 (a GPU no limite e a CPU a
+  103 C de media, com a SDLThread a girar); com a t38 (SDK 0196) a luta fez 119,8/111,5 e a campanha 120,0/119,8,
+  CPU a 82 C de media, GPU a 81-82 C, 0 erros, 0 device lost.
+- B6: titulo, menus e save (menu.sh), 15 min de campanha (cutscenes, KO, especiais, volta ao Z Chronicles e novo
+  inicio), 15 min de lutas com fim e continuar; a campanha aos 30 e 45 s e o Now Loading iguais ao Xenia.
+
+Odin 3 reposto no fim (restore.sh): t38, toml 22622616, saves e conquistas iguais ao backup, ecra como estava, adb
+outra vez so por USB.
