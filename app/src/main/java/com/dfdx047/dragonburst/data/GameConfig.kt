@@ -32,6 +32,9 @@ data class GameConfig(
     // debug_overlay_position: em cima a direita (a esquerda fica a engrenagem dos controles por toque)
     val fpsPosition: String = "top-right",
     val letterbox: Boolean = true,            // present_letterbox (16:9 com barras / esticar)
+    // Widescreen (29/10): aspect_ratio "auto" do BL v7.3, o jogo ve mais dos lados na forma da tela (hor+) e o HUD fica
+    // na forma certa, as barras de vida nas pontas (o Renut repoe o 2D: renut/0118). So com o Renut (ver wideOn).
+    val widescreen: Boolean = false,
     // Efeitos do jogo (burstlimit_patches.cpp: desligados por omissao no PC)
     val depthOfField: Boolean = false,        // depth_of_field
     val glowBlur: Boolean = false,            // glow_blur
@@ -81,17 +84,21 @@ data class GameConfig(
 ) {
     /** O jogo arranca no Renut com estas opcoes. */
     val useRenut: Boolean get() = renderer != "xenos"
+    /** Widescreen em uso: so no Renut (no Xenia em Vulkan o HUD nao e reposto, SDK 0186 so traz a projecao). */
+    val wideOn: Boolean get() = widescreen && useRenut
+    /** A imagem fica 16:9 com barras (a "Resolucao da tela" mede a altura dela). */
+    val fitLetterbox: Boolean get() = letterbox && !wideOn
 
     /**
      * sa2_render_height_handheld: a altura que o Renut desenha (360-2160; 1080p so ele faz). A "Resolucao da tela" no
      * Renut e a das suas alturas mais perto da tela (ScreenFit.renutHeight: o Cube 405 -> 360).
      */
-    val renutHeight: Int get() = if (resolution == InternalResolution.SCREEN) ScreenFit.renutHeight(letterbox) else resolution.height
+    val renutHeight: Int get() = if (resolution == InternalResolution.SCREEN) ScreenFit.renutHeight(fitLetterbox) else resolution.height
 
     /** draw_resolution_percent do Xenia (escala 1): a percentagem de 1280x720; "Resolucao da tela" a altura exata, ate 100. */
     val drawPercent: Int get() = when {
         resolution.scale > 1 -> 100
-        resolution == InternalResolution.SCREEN -> (ScreenFit.height(letterbox) * 100 / 720).coerceIn(50, 100)
+        resolution == InternalResolution.SCREEN -> (ScreenFit.height(fitLetterbox) * 100 / 720).coerceIn(50, 100)
         else -> resolution.percent
     }
 
@@ -110,7 +117,9 @@ data class GameConfig(
         "sa2_render_height_handheld" to renutHeight,
         // "Resolucao da tela" (28/10): a altura que a imagem ocupa na tela, refeita a cada gravacao.
         "swordman_resolution_choice" to if (resolution == InternalResolution.SCREEN) "screen" else resolution.label,
-        "swordman_aspect" to if (letterbox) "original" else "stretch",
+        // Widescreen: "original" e o Renut mostra o quadro na forma que o jogo pediu (GetGuestDisplayAspect).
+        "swordman_aspect" to if (letterbox || wideOn) "original" else "stretch",
+        "swordman_widescreen_choice" to widescreen,
         "gpu_allow_invalid_fetch_constants" to true,
         // O launcher do APP substitui o ecra inicial do PC.
         "start_screen" to false,
@@ -143,9 +152,9 @@ data class GameConfig(
             "es" -> "es"
             else -> "en"
         },
-        // Widescreen do BL v7.3 (aspect_ratio) fica em 16:9: no Vulkan o HUD nao e reposto
-        // (SDK 0186 so traz a projecao) e o Xenia so escala por inteiros. Ver AndroidMenu.
-        "aspect_ratio" to "16:9",
+        // Widescreen do BL v7.3: auto = a forma da tela (a superficie do Renut, SetOutputSurfaceSize). No Xenia fica
+        // em 16:9: no Vulkan o HUD nao e reposto (SDK 0186 so traz a projecao). Ver wideOn e AndroidMenu.
+        "aspect_ratio" to if (wideOn) "auto" else "16:9",
         "present_letterbox" to letterbox,
         "depth_of_field" to depthOfField,
         "glow_blur" to glowBlur,
@@ -283,6 +292,13 @@ data class GameConfig(
                 fpsDetail = str("debug_overlay_detail", d.fpsDetail).takeIf { it == "simple" } ?: "full",
                 fpsPosition = str("debug_overlay_position", d.fpsPosition),
                 letterbox = bool("present_letterbox", d.letterbox),
+                // O menu do jogo grava so cvars (SaveConfig): com o Renut a escolha e a aspect_ratio que ele muda ao
+                // vivo; a chave propria guarda-a para quando o Xenia (sempre 16:9) estiver escolhido.
+                widescreen = when {
+                    str("aspect_ratio", "16:9") == "auto" -> true
+                    str("swordman_renderer_choice", d.renderer) != "xenos" -> false
+                    else -> bool("swordman_widescreen_choice", d.widescreen)
+                },
                 depthOfField = bool("depth_of_field", d.depthOfField),
                 glowBlur = bool("glow_blur", d.glowBlur),
                 motionBlur = bool("motion_blur", d.motionBlur),

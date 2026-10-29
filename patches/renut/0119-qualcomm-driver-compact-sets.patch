@@ -1,0 +1,25 @@
+Dragon Burst renut 0119: the Qualcomm driver gets the compact draw layout when it reports 5-7 descriptor sets
+
+The Honor Magic 7 Pro (Adreno 830, Qualcomm's Vulkan 1.3 driver, maxBoundDescriptorSets 7) crashed in
+vkCreatePipelineLayout on the 8-set draw layout at the Renut's start (SIGSEGV in vulkan.adreno.so). The compact
+layout (the Mali-G57's) is now used there too; below 5 the sets stay merged (Adreno 650), Turnip keeps the 8.
+
+diff --git a/app/src/renut_engine/gpu/backend/video.cpp b/app/src/renut_engine/gpu/backend/video.cpp
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -1095,10 +1095,14 @@
+   // SwordMan (Android): Mali-G57 (r40) binds 7 descriptor sets; the draw layout has 8 unless compacted. Not on Adreno:
+   // Turnip reports 4 there but has always bound the 8 (the layout the Renut is validated with).
+   const bool adreno = uint32_t(s.device->getDescription().vendor) == 0x5143;
+-  SetDrawSetsCompact(IsVulkan() && !adreno && s.device->getCapabilities().maxBoundDescriptorSets < 8);
+   // Dragon Burst: the Qualcomm driver ("Adreno (TM) 650", no Turnip/PurpleVK in the name) binds the 4 it reports.
+   const std::string &gpu_name = s.device->getDescription().name;
+   const bool qualcomm_driver = adreno && gpu_name.rfind("Adreno", 0) == 0;
++  // Dragon Burst (2026-10-29): and the 7 it reports from the Adreno 830 on: the Honor Magic 7 Pro's (Vulkan 1.3)
++  // crashes in vkCreatePipelineLayout on the 8-set draw layout, the Odin 3's (1.4) took it. Below 5 the sets are
++  // merged instead (below).
++  const uint32_t max_sets = s.device->getCapabilities().maxBoundDescriptorSets;
++  SetDrawSetsCompact(IsVulkan() && max_sets < 8 && (!adreno || (qualcomm_driver && max_sets >= 5)));
+   if (IsVulkan() && qualcomm_driver && s.device->getCapabilities().maxBoundDescriptorSets < 5)
+     SetDrawSetsMerged(true);
+   if (DrawSetsMerged())

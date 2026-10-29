@@ -514,8 +514,10 @@
     <string name="menu_fps_detail_simple">Game FPS only</string>
     <string name="menu_fps_detail_full">Full</string>
     <string name="aspect_widescreen_off">Widescreen: unavailable (%1$s)</string>
+    <string name="aspect_widescreen">Widescreen</string>
+    <string name="aspect_widescreen_sub">More of the scene at the sides, the HUD kept in shape with the life bars at the edges</string>
     <string name="aspect_widescreen_why_screen">this screen is already 16:9</string>
-    <string name="aspect_widescreen_why_renderer">in Burst Limit the HUD does not follow it yet</string>
+    <string name="aspect_widescreen_why_renderer">only with the Renut renderer</string>
     <string name="gpu_first_device">This device: %1$s</string>
     <string name="gpu_first_suggest">Suggested: the %1$s preset (%2$s). You can change it any time in the Performance tab.</string>
     <string name="gpu_first_driver_system">Driver: the system one (Vulkan %1$s). Turnip is optional, in the Drivers tab; on the Adreno 740 the system driver was faster (60 against 30 FPS in a fight).</string>

@@ -409,7 +409,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         list += choice(
             s(R.string.settings_resolution), s(R.string.perf_resolution_sub),
             InternalResolution.entries.filter { renut || it != InternalResolution.P1080 }.map {
-                it to if (it == InternalResolution.SCREEN) s(R.string.res_screen, if (c.useRenut) ScreenFit.renutHeight(c.letterbox) else ScreenFit.height(c.letterbox)) else it.label
+                it to if (it == InternalResolution.SCREEN) s(R.string.res_screen, if (c.useRenut) ScreenFit.renutHeight(c.fitLetterbox) else ScreenFit.height(c.fitLetterbox)) else it.label
             },
             c.resolution, restart = !renut,
         ) { v ->
@@ -466,19 +466,31 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
                 c.fpsDetail,
             ) { v -> set(c.copy(fpsDetail = v), mapOf("debug_overlay_detail" to v)) }
         }
+        // Widescreen (29/10): a terceira opcao nas telas mais largas que 16:9 com o Renut (renut/0118 repoe o HUD).
+        val wideScreen = DisplayRates.isWiderThan16x9(context)
+        val aspects = buildList {
+            add("original" to s(R.string.aspect_original))
+            add("stretch" to s(R.string.aspect_stretch))
+            if (wideScreen && renut) add("wide" to s(R.string.aspect_widescreen))
+        }
         list += choice(
-            s(R.string.settings_aspect_mode), null,
-            listOf(true to s(R.string.aspect_original), false to s(R.string.aspect_stretch)), c.letterbox,
+            s(R.string.settings_aspect_mode), if (wideScreen && renut) s(R.string.aspect_widescreen_sub) else null,
+            aspects, if (c.wideOn && renut) "wide" else if (c.letterbox) "original" else "stretch",
         ) { v ->
+            val n = if (v == "wide") c.copy(widescreen = true) else c.copy(letterbox = v == "original", widescreen = false)
             set(
-                c.copy(letterbox = v),
-                mapOf("present_letterbox" to v.toString(), "swordman_aspect" to if (v) "original" else "stretch"),
+                n,
+                mapOf(
+                    "present_letterbox" to n.letterbox.toString(),
+                    "swordman_aspect" to if (n.letterbox || n.wideOn) "original" else "stretch",
+                    "aspect_ratio" to if (n.wideOn) "auto" else "16:9",
+                    "sa2_render_height_handheld" to n.renutHeight.toString(),
+                ),
             )
         }
-        // Widescreen (hor+) sempre visivel, com o motivo de nao se aplicar.
-        list += MInfo(s(R.string.aspect_widescreen_off, s(
-            if (DisplayRates.isWiderThan16x9(context)) R.string.aspect_widescreen_why_renderer
-            else R.string.aspect_widescreen_why_screen,
+        // Sem widescreen: o motivo.
+        if (!wideScreen || !renut) list += MInfo(s(R.string.aspect_widescreen_off, s(
+            if (wideScreen) R.string.aspect_widescreen_why_renderer else R.string.aspect_widescreen_why_screen,
         )))
         list += MHeader(s(R.string.settings_filter))
         list += choice(

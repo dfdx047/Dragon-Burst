@@ -513,8 +513,10 @@
     <string name="menu_fps_detail_simple">Solo los FPS del juego</string>
     <string name="menu_fps_detail_full">Completo</string>
     <string name="aspect_widescreen_off">Panorámico: no disponible (%1$s)</string>
+    <string name="aspect_widescreen">Panorámico</string>
+    <string name="aspect_widescreen_sub">Más de la escena a los lados, el HUD en su forma con las barras de vida en los extremos</string>
     <string name="aspect_widescreen_why_screen">esta pantalla ya es 16:9</string>
-    <string name="aspect_widescreen_why_renderer">en Burst Limit el HUD aún no lo acompaña</string>
+    <string name="aspect_widescreen_why_renderer">solo con el renderizador Renut</string>
     <string name="gpu_first_device">Este dispositivo: %1$s</string>
     <string name="gpu_first_suggest">Sugerido: el preajuste %1$s (%2$s). Puedes cambiarlo cuando quieras en la pestaña Rendimiento.</string>
     <string name="gpu_first_driver_system">Driver: el del sistema (Vulkan %1$s). Turnip es opcional, en la pestaña Drivers; en la Adreno 740 el del sistema fue más rápido (60 frente a 30 FPS en combate).</string>

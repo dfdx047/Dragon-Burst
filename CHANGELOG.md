@@ -18,6 +18,7 @@ Renderizador
 - Auto usa sempre o Renut, em todas as GPUs; o Xenia fica como opção do jogador.
 - Se o jogo fechar, o app avisa e oferece Exportar logs para corrigirmos; a partir do 2.º fecho seguido pergunta se quer usar o Xenia por agora. Nunca troca sozinho.
 - O Renut roda com o driver do sistema da Qualcomm (ex.: Retroid Pocket 5), sem precisar do Turnip.
+- Honor Magic 7 Pro (Adreno 830): o Renut fechava ao arrancar com o driver do sistema; agora abre e joga a 60 FPS.
 
 Desempenho
 - Nova resolução "Tela": desenha na altura que a imagem ocupa na tela. Nas telas pequenas o app sugere-a no primeiro arranque.
@@ -28,6 +29,9 @@ Desempenho
 - 120 FPS (nativo) com o Renut: antes ficava nos 60 numa tela de 120 Hz; agora chega aos 120, à mesma velocidade de jogo.
 - AYN Odin 3 (Adreno 830) com o Renut, driver do sistema: 1080p a 60 e a 120 FPS na luta e na campanha, 120 estáveis em 15 minutos seguidos.
 - Menos CPU e calor com o Renut: a thread da interface deixou de ocupar um núcleo inteiro (no Odin 3 a CPU desceu de 103 °C para 82 °C de média).
+
+Imagem
+- Widescreen (telas mais largas que 16:9, com o Renut): o jogo mostra mais da cena aos lados, na forma da tela, e o HUD fica na forma certa, com as barras de vida e os retratos nas pontas. Desempenho > Proporção de tela > Widescreen, ou no menu do jogo (Imagem); liga e desliga a qualquer momento, sem reiniciar.
 
 Da versão de PC (v7.3)
 - Menos atraso nos comandos: o jogo lê o comando no momento em que pergunta por ele.
@@ -48,6 +52,7 @@ Renderer
 - Auto always uses the Renut, on every GPU; Xenia stays as the player's option.
 - If the game closes, the app says so and offers Export logs so we can fix it; from the 2nd close in a row it asks whether to use Xenia for now. It never switches by itself.
 - The Renut runs on Qualcomm's system driver (e.g. Retroid Pocket 5), no Turnip needed.
+- Honor Magic 7 Pro (Adreno 830): the Renut closed at start on the system driver; it now starts and plays at 60 FPS.
 
 Performance
 - New "Screen" resolution: draws at the height the picture takes on the screen. On small screens the app suggests it at first launch.
@@ -58,6 +63,9 @@ Performance
 - 120 FPS (native) with the Renut: it stayed at 60 on a 120 Hz screen; it now reaches 120, at the same game speed.
 - AYN Odin 3 (Adreno 830) with the Renut, system driver: 1080p at 60 and at 120 FPS in fights and in the campaign, a steady 120 over 15 minutes in a row.
 - Less CPU and heat with the Renut: the interface thread no longer takes a whole core (on the Odin 3 the CPU went from 103 °C to 82 °C on average).
+
+Image
+- Widescreen (screens wider than 16:9, with the Renut): the game shows more of the scene at the sides, in the screen's shape, and the HUD keeps its shape, with the life bars and portraits at the edges. Performance > Aspect ratio > Widescreen, or in the in-game menu (Image); turn it on and off at any time, no restart.
 
 From the PC version (v7.3)
 - Less input delay: the game reads the controller at the moment it asks for it.
@@ -78,6 +86,7 @@ Renderizador
 - Auto usa siempre el Renut, en todas las GPU; Xenia queda como opción del jugador.
 - Si el juego se cierra, la app lo avisa y ofrece Exportar logs para que lo corrijamos; a partir del 2.º cierre seguido pregunta si quieres usar Xenia por ahora. Nunca cambia solo.
 - El Renut funciona con el driver del sistema de Qualcomm (p. ej. Retroid Pocket 5), sin Turnip.
+- Honor Magic 7 Pro (Adreno 830): el Renut se cerraba al arrancar con el driver del sistema; ahora abre y juega a 60 FPS.
 
 Rendimiento
 - Nueva resolución "Pantalla": dibuja a la altura que ocupa la imagen en la pantalla. En pantallas pequeñas la app la sugiere en el primer arranque.
@@ -88,6 +97,9 @@ Rendimiento
 - 120 FPS (nativo) con el Renut: antes se quedaba en 60 en una pantalla de 120 Hz; ahora llega a 120, a la misma velocidad de juego.
 - AYN Odin 3 (Adreno 830) con el Renut, driver del sistema: 1080p a 60 y a 120 FPS en combate y en la campaña, 120 estables durante 15 minutos seguidos.
 - Menos CPU y calor con el Renut: el hilo de la interfaz ya no ocupa un núcleo entero (en la Odin 3 la CPU bajó de 103 °C a 82 °C de media).
+
+Imagen
+- Panorámico (pantallas más anchas que 16:9, con el Renut): el juego muestra más de la escena a los lados, con la forma de la pantalla, y el HUD mantiene su forma, con las barras de vida y los retratos en los extremos. Rendimiento > Relación de aspecto > Panorámico, o en el menú del juego (Imagen); se activa y desactiva en cualquier momento, sin reiniciar.
 
 De la versión de PC (v7.3)
 - Menos retraso en los controles: el juego lee el mando en el momento en que lo pide.

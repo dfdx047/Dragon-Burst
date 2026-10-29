@@ -339,9 +339,9 @@ private fun GpuNotice(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
 @Composable
 private fun ScreenResNotice(vm: LauncherViewModel) {
     val fit = com.dfdx047.dragonburst.data.ScreenFit
-    val h = fit.height(vm.config.letterbox)
+    val h = fit.height(vm.config.fitLetterbox)
     // A altura em que fica desenhado: a do Renut e a mais perto das suas (405 -> 360), o Xenia faz a exata.
-    val drawn = if (vm.config.useRenut) fit.renutHeight(vm.config.letterbox) else h
+    val drawn = if (vm.config.useRenut) fit.renutHeight(vm.config.fitLetterbox) else h
     AlertDialog(
         onDismissRequest = { vm.answerScreenResNotice(false) },
         icon = { Icon(Icons.Filled.Memory, null) },

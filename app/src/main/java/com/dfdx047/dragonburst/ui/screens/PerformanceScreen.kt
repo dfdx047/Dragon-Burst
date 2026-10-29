@@ -190,7 +190,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 title = stringResource(R.string.settings_resolution),
                 subtitle = stringResource(R.string.perf_resolution_sub),
                 options = InternalResolution.entries.filter { c.useRenut || it != InternalResolution.P1080 }.map { r ->
-                    r to if (r == InternalResolution.SCREEN) stringResource(R.string.res_screen, if (c.useRenut) ScreenFit.renutHeight(c.letterbox) else ScreenFit.height(c.letterbox)) else r.label
+                    r to if (r == InternalResolution.SCREEN) stringResource(R.string.res_screen, if (c.useRenut) ScreenFit.renutHeight(c.fitLetterbox) else ScreenFit.height(c.fitLetterbox)) else r.label
                 },
                 selected = c.resolution,
                 onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
@@ -297,11 +297,22 @@ fun PerformanceScreen(vm: LauncherViewModel) {
 
         // ------------------------------------------------------------- proporcao
         SectionCard(stringResource(R.string.settings_aspect), Icons.Filled.PhotoSizeSelectLarge) {
+            // Widescreen (29/10): nas telas mais largas que 16:9, com o Renut (renut/0118 repoe o HUD).
+            val wide = DisplayRates.isWiderThan16x9(LocalContext.current) && c.useRenut
             SettingSegmented(
                 title = stringResource(R.string.settings_aspect_mode),
-                options = listOf(true to stringResource(R.string.aspect_original), false to stringResource(R.string.aspect_stretch)),
-                selected = c.letterbox,
-                onSelect = { v -> vm.updateConfig { it.copy(letterbox = v) } },
+                options = buildList {
+                    add("original" to stringResource(R.string.aspect_original))
+                    add("stretch" to stringResource(R.string.aspect_stretch))
+                    if (wide) add("wide" to stringResource(R.string.aspect_widescreen))
+                },
+                selected = if (wide && c.widescreen) "wide" else if (c.letterbox) "original" else "stretch",
+                subtitle = if (wide) stringResource(R.string.aspect_widescreen_sub) else null,
+                onSelect = { v ->
+                    vm.updateConfig {
+                        if (v == "wide") it.copy(widescreen = true) else it.copy(letterbox = v == "original", widescreen = false)
+                    }
+                },
             )
         }
 

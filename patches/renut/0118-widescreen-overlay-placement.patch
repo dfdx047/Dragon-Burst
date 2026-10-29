@@ -1,0 +1,138 @@
+Dragon Burst renut 0118: widescreen - the game's 2D placed by Burst Limit (wide_aspect.h), the frame shown at its shape
+
+With aspect_ratio wider than 16:9 (auto = the screen's shape) Burst Limit v7.3 draws a wider view (hor+) into its
+1280x720 frame. The Renut now asks the game where each 2D draw over the main target goes (the overlay placement
+callback, PlaceOverlay in burstlimit_widescreen.cpp, as the PC's D3D12 path does) and moves its viewport and scissor;
+the present shows the frame at rex::graphics::GetGuestDisplayAspect (stretched across) and records the surface size
+for auto.
+
+diff --git a/app/src/renut_engine/gpu/backend/present.cpp b/app/src/renut_engine/gpu/backend/present.cpp
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -19,6 +19,7 @@
+ 
+ #include <rex/cvar.h>
+ #include <rex/perf/frame_rate.h>  // Zandatsu (renut/0025): the display's refresh, the presents
++#include <rex/graphics/wide_aspect.h>  // Dragon Burst: widescreen (FitFrame)
+ 
+ #include "renut_engine/gpu/backend/backend.h"
+ #include "renut_engine/gpu/backend/gpu_profile.h"
+@@ -139,10 +140,17 @@
+ FrameFit FitFrame(uint32_t out_w, uint32_t out_h, uint32_t src_w, uint32_t src_h) {
+   FrameFit fit;
+   fit.viewport = plume::RenderViewport(0.0f, 0.0f, float(out_w), float(out_h));
++  // Dragon Burst: the surface the frame goes to, for aspect_ratio = auto (the screen's shape).
++  rex::graphics::SetOutputSurfaceSize(out_w, out_h);
+   if (src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 || REXCVAR_GET(swordman_aspect) == "stretch")
+     return fit;
+   const float out_aspect = float(out_w) / float(out_h);
+-  const float src_aspect = float(src_w) / float(src_h);
++  float src_aspect = float(src_w) / float(src_h);
++  // Dragon Burst (2026-10-29, widescreen): Burst Limit draws a wider view into its 1280x720 frame (aspect_ratio,
++  // rex/graphics/wide_aspect.h), shown at that shape: stretched across (anamorphic), its 2D kept in shape by the draws
++  // (PlaceOverlayDraw in render/draw.cpp).
++  if (const float display = rex::graphics::GetGuestDisplayAspect(); display > src_aspect + 0.01f)
++    src_aspect = display;
+   // Within half a percent: a frame of the screen's shape whose width was rounded to 16.
+   if (std::fabs(src_aspect / out_aspect - 1.0f) < 0.005f)
+     return fit;
+diff --git a/app/src/renut_engine/gpu/render/draw.cpp b/app/src/renut_engine/gpu/render/draw.cpp
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -32,6 +32,7 @@
+ 
+ #include <rex/system/xmemory.h>
+ #include <rex/graphics/draw_overrides.h>  // Dragon Burst
++#include <rex/graphics/wide_aspect.h>     // Dragon Burst: PlaceOverlayDraw
+ 
+ #include "renut_engine/gpu/backend/backend.h"
+ #include "renut_engine/gpu/backend/gpu_profile.h"
+@@ -4231,6 +4232,78 @@
+             export_count);
+ }
+ 
++// Dragon Burst (2026-10-29, widescreen): the game's 2D in a wider picture (rex/graphics/wide_aspect.h). With
++// aspect_ratio wider than 16:9 Burst Limit draws a wider view into its 1280x720 frame, which the present stretches to
++// the screen's shape, and its 2D would stretch with it: for a draw over the main target with its viewport on the whole
++// 1280 columns and the depth test off or always passing (the HUD, menus, full-screen passes), the game says where its
++// clip X goes (x * scale_x + offset_x, burstlimit_widescreen.cpp's PlaceOverlay), as the PC's D3D12 path asks it. The
++// viewport and the scissor take it.
++void PlaceOverlayDraw(const u8 *device_state, const GuestDevice &device, const DrawCall &call,
++                      const ReplayConstants *replay, const ShaderRecord &vs, const ShaderRecord *ps,
++                      const Targets &targets, ViewportState &viewport) {
++  constexpr uint32_t kFrontWidth = 1280, kFrontHeight = 720;
++  const rex::graphics::OverlayPlacementCallback callback = rex::graphics::GetOverlayPlacementCallback();
++  if (!callback || targets.guest_width < kFrontWidth)
++    return;
++  const float host_width = float(targets.scale.Size(kFrontWidth));
++  const float slack = targets.scale.Factor();
++  plume::RenderViewport &v = viewport.viewport;
++  if (std::fabs(v.x) > slack || std::fabs(std::fabs(v.width) - host_width) > slack)
++    return;
++  // RB_DEPTHCONTROL: z_enable bit 1, zfunc bits 4-6 (7 = always); the game's, in RB_MODECONTROL's color + depth mode
++  // (edram_mode 4), bound depth target or not, as the emulated path's normalized depth control takes it.
++  const u32 depth_control =
++      (u32(device.dev().m_ControlPacket.ModeControl) & 7) == 4 ? u32(device.dev().m_ControlPacket.DepthControl) : 0;
++  const bool depth_test = (depth_control & 2) != 0;
++  if (depth_test && ((depth_control >> 4) & 7) != 7 &&
++      !(ps && rex::graphics::IsOverlayDepthTestedPixelShader(ps->ucode_hash)))
++    return;
++  rex::graphics::OverlayDrawInfo info;
++  info.vertex_shader_hash = vs.ucode_hash;
++  info.pixel_shader_hash = ps ? ps->ucode_hash : 0;
++  const FloatConstants constants = DrawFloatConstants(device_state, replay, false);
++  for (u32 r = 0; r < 8; ++r) {
++    const u8 *words = constants.Register(r);
++    for (u32 i = 0; i < 4; ++i) {
++      u32 word;
++      std::memcpy(&word, words + 4 * i, 4);
++      word = __builtin_bswap32(word);
++      std::memcpy(&info.vertex_constants[r * 4 + i], &word, 4);
++    }
++  }
++  const TextureFetch fetch = DeviceTextureFetch(device.dev(), 0);
++  if (fetch.IsTexture() && fetch.Dimension() == TextureDimension::Tex2D) {
++    info.texture0_width = (fetch.dword[2] & 0x1FFF) + 1;
++    info.texture0_height = ((fetch.dword[2] >> 13) & 0x1FFF) + 1;
++  }
++  // Big-endian as in guest memory (the game's 2D streams and Begin*Vertices are 8in32).
++  const StreamSource stream = GetStreamSource(device, call, vs, nullptr, 0);
++  if (stream.data && stream.stride && stream.vertex_count) {
++    info.vertex_data = stream.data;
++    info.vertex_data_size = stream.vertex_count * stream.stride;
++  }
++  info.depth_test = depth_test;
++  info.primitive_type = call.primitive;
++  info.vertex_count = call.count;
++  info.frontbuffer_width = kFrontWidth;
++  info.frontbuffer_height = kFrontHeight;
++  const rex::graphics::OverlayPlacement placement = callback(info);
++  if (placement.scale_x == 1.0f && placement.offset_x == 0.0f)
++    return;
++  // Clip X -> x * s + o around the viewport's center: the center moves by o half-widths and the width scales by s.
++  const float half = 0.5f * v.width;
++  const float center = v.x + half;
++  v.x = center + placement.offset_x * half - placement.scale_x * half;
++  v.width *= placement.scale_x;
++  float left = center + (float(viewport.scissor.left) - center) * placement.scale_x + placement.offset_x * half;
++  float right = center + (float(viewport.scissor.right) - center) * placement.scale_x + placement.offset_x * half;
++  if (left > right)
++    std::swap(left, right);
++  const float target_width = float(targets.scale.Size(targets.width));
++  viewport.scissor.left = int32_t(std::clamp(std::floor(left), 0.0f, target_width));
++  viewport.scissor.right = std::max(viewport.scissor.left, int32_t(std::clamp(std::ceil(right), 0.0f, target_width)));
++}
++
+ // sa2-nx (2026-10-20, sa2_renut_chain_reuse): the previous chain draw's targets and viewport (DrawStateLocked).
+ struct TargetsReuse {
+   uint64_t seq = 0, epoch = 0;
+@@ -4772,6 +4845,9 @@
+     viewport.viewport.width = float(targets.scale.Size(1280));
+     viewport.scissor.right = std::min(viewport.scissor.right, int32_t(targets.scale.Size(1280)));
+   }
++  // Dragon Burst (2026-10-29, widescreen): PlaceOverlayDraw.
++  if (vs && !viewport.screen_space && rex::graphics::GetGuestDisplayAspect() > 16.0f / 9.0f + 0.01f)
++    PlaceOverlayDraw(device_state, device, call, replay, *vs, ps, targets, viewport);
+   sc.screen_space = viewport.screen_space ? 1 : 0;
+   std::memcpy(sc.screen_scale, viewport.screen_scale, sizeof(sc.screen_scale));
+   std::memcpy(sc.screen_offset, viewport.screen_offset, sizeof(sc.screen_offset));

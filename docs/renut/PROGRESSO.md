@@ -608,3 +608,36 @@ O Odin 3 voltou por USB e passou para o adb por Wi-Fi (`adb tcpip 5555`, 192.168
 
 Odin 3 reposto no fim (restore.sh): t38, toml 22622616, saves e conquistas iguais ao backup, ecra como estava, adb
 outra vez so por USB.
+
+## W: widescreen na tela do Honor Magic 7 Pro (29/10, 22:00-23:00 Lisboa, Adreno 830, 2800x1280)
+
+O pedido: widescreen pela tela do telemovel do dono (PTP-N49, 2800x1280 deitado, 2,19:1), uma opcao que liga e
+desliga quando se quer. Nao foi reinventado: e o widescreen do BL v7.3 do PC (`burstlimit_widescreen.cpp`), que ja vem
+no libgame (aspect_ratio, hor+ nas projecoes do jogo, PlaceOverlay a dizer onde vai cada desenho 2D). Faltava o lado do
+GPU, que no PC e o D3D12 e aqui nao existia (a SDK 0186 so trouxe a projecao).
+
+- renut 0118: o Renut pergunta ao jogo pela callback de overlay (rex/graphics/wide_aspect.h) em cada desenho sobre o
+  alvo principal com o viewport nas 1280 colunas e a profundidade desligada ou sempre a passar, como o D3D12 do PC
+  (hash do microcodigo igual ao do Xenia, renut 0104; constantes c0-c7, textura 0, stream 0, depth do registo no modo
+  color+depth); o viewport e o scissor levam o x * escala + desvio. O present mostra o quadro na forma que o jogo pediu
+  (GetGuestDisplayAspect, esticado na horizontal) e grava o tamanho da superficie para o `auto`.
+- App: Imagem passa a Original 16:9 / Esticar / Widescreen nas telas mais largas que 16:9 com o Renut (launcher e
+  menu do jogo). Widescreen escreve aspect_ratio = "auto" e swordman_aspect = "original"; no Xenia fica 16:9 (o HUD nao
+  e reposto no Vulkan). No menu do jogo muda ao vivo (aspect_ratio e kHotReload, o jogo rele-a a cada 250 ms).
+- renut 0119: o Renut fechava ao arrancar no Honor (SIGSEGV em vulkan.adreno.so, vkCreatePipelineLayout): o driver da
+  Qualcomm dele (Vulkan 1.3) anuncia 7 descriptor sets e nao aguenta o layout de 8 que o do Odin 3 (1.4) aceitava. O
+  driver da Qualcomm passa a ter o layout compacto (o do Mali) quando anuncia 5-7; abaixo de 5 continua fundido (RP5),
+  o Turnip continua com 8. O Odin 3 tambem passa a compacto: falta revalida-lo (nao estava ligado).
+
+Honor, Renut, 720p, 60 FPS, widescreen 2,188 (draw_resolution_scale_x 2 para o Xenia; o Renut desenha 1280x720 e
+estica):
+- luta CPU x CPU 3 min (t40): 60,0 em todas as janelas de 10 s menos uma no carregamento (57,6), GPU 9-10 ms, 48 C.
+- campanha 3 min com cutscenes (t41, Saiyan Arrival): 60,0 / min 59,7, GPU 6,8 ms (max 9,9), 54 C. Cutscenes em ecra
+  cheio, legendas e Drama Pieces na forma certa, retratos e barras de vida nas pontas, relogio ao centro.
+- titulo, demo do titulo, Versus e escolha de palco: o fundo estica ate as pontas, personagens e texto na forma certa.
+  O menu principal fica com faixas escuras aos lados (as pecas dele nao cobrem o ecra; e a regra do PC).
+- ligar e desligar ao vivo (t41): Widescreen -> Esticar e Esticar -> Widescreen no menu do jogo, a meio da campanha,
+  mudam no quadro seguinte. O menu do jogo grava so cvars, por isso a escolha le-se da aspect_ratio com o Renut (t42).
+
+Fica para depois: o Renut desenhar mais colunas em widescreen (hoje 1280 esticadas a 2800; o Xenia ja sobe o
+draw_resolution_scale_x), o widescreen no Xenia em Vulkan (o HUD) e revalidar o Odin 3 com a 0119.
