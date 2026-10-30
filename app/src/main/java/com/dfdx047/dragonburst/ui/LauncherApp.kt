@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -22,7 +21,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Extension
@@ -39,13 +40,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,13 +54,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dfdx047.dragonburst.R
 import com.dfdx047.dragonburst.data.GpuAdvice
 import com.dfdx047.dragonburst.data.GraphicsPreset
@@ -118,35 +122,15 @@ fun LauncherApp(vm: LauncherViewModel) {
                 .background(MaterialTheme.colorScheme.background)
                 .windowInsetsPadding(WindowInsets.safeDrawing),
         ) {
+            // As abas em baixo (30/10, pedido do dono), deitado e em pe; deitado sem o cabecalho, que tira altura.
             val wide = maxWidth > maxHeight && maxWidth >= 600.dp
-            if (wide) {
-                Row(Modifier.fillMaxSize()) {
-                    SideRail(tab) { tab = it }
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        BusyBar(vm.busy)
-                        TabContent(tab, vm) { tab = it }
-                    }
-                }
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    Header()
-                    ScrollableTabRow(
-                        selectedTabIndex = tab.ordinal,
-                        edgePadding = 12.dp,
-                        containerColor = MaterialTheme.colorScheme.background,
-                    ) {
-                        LauncherTab.entries.forEach { t ->
-                            Tab(
-                                selected = t == tab,
-                                onClick = { tab = t },
-                                text = { Text(stringResource(t.title), maxLines = 1) },
-                                icon = { Icon(t.icon, null) },
-                            )
-                        }
-                    }
-                    BusyBar(vm.busy)
+            Column(Modifier.fillMaxSize()) {
+                if (!wide) Header()
+                BusyBar(vm.busy)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                     TabContent(tab, vm) { tab = it }
                 }
+                BottomTabs(tab) { tab = it }
             }
         }
     }
@@ -194,33 +178,65 @@ private fun Header() {
     }
 }
 
+/**
+ * Barra das abas em baixo: dividem a largura quando cabem (deitado), senao a barra rola e mantem a aba escolhida a
+ * vista (em pe, 10 abas).
+ */
 @Composable
-private fun SideRail(selected: LauncherTab, onSelect: (LauncherTab) -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxHeight().width(96.dp)) {
-        Column(
+private fun BottomTabs(selected: LauncherTab, onSelect: (LauncherTab) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(color = scheme.surfaceContainer, tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
+        BoxWithConstraints(
             Modifier
-                .fillMaxHeight()
-                .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.background)))
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(scheme.surfaceContainerHigh, scheme.surfaceContainer))),
         ) {
-            Icon(
-                painterResource(R.drawable.ic_launcher_foreground),
-                null,
-                tint = androidx.compose.ui.graphics.Color.Unspecified,
-                modifier = Modifier.size(56.dp),
-            )
-            LauncherTab.entries.forEach { t ->
-                NavigationRailItem(
-                    selected = t == selected,
-                    onClick = { onSelect(t) },
-                    icon = { Icon(t.icon, null) },
-                    label = { Text(stringResource(t.title), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                )
+            val count = LauncherTab.entries.size
+            val itemWidth = maxOf(88.dp, maxWidth / count)
+            val scroll = rememberScrollState()
+            val density = LocalDensity.current
+            LaunchedEffect(selected, itemWidth) {
+                val item = with(density) { itemWidth.roundToPx() }
+                val view = with(density) { maxWidth.roundToPx() }
+                scroll.animateScrollTo((selected.ordinal * item - (view - item) / 2).coerceIn(0, scroll.maxValue))
+            }
+            Row(Modifier.horizontalScroll(scroll).padding(vertical = 6.dp)) {
+                LauncherTab.entries.forEach { t ->
+                    BottomTab(t, t == selected, itemWidth) { onSelect(t) }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun BottomTab(tab: LauncherTab, selected: Boolean, width: Dp, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .width(width)
+            .clip(RoundedCornerShape(14.dp))
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (selected) scheme.secondaryContainer else Color.Transparent)
+                .padding(horizontal = 18.dp, vertical = 4.dp),
+        ) {
+            Icon(tab.icon, null, tint = if (selected) DfColors.Gold else scheme.onSurfaceVariant)
+        }
+        Text(
+            stringResource(tab.title),
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, letterSpacing = 0.sp),
+            color = if (selected) DfColors.Gold else scheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
     }
 }
 

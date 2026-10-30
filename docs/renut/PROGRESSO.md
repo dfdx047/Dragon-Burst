@@ -641,3 +641,15 @@ estica):
 
 Fica para depois: o Renut desenhar mais colunas em widescreen (hoje 1280 esticadas a 2800; o Xenia ja sobe o
 draw_resolution_scale_x), o widescreen no Xenia em Vulkan (o HUD) e revalidar o Odin 3 com a 0119.
+
+## L: launcher e documentacao (29/10, 23:30-00:30 Lisboa)
+
+- Abas numa barra em baixo, de pe e deitado (LauncherApp.kt, BottomTabs): deitado as 10 dividem a largura, de pe a
+  barra rola e centra a aba escolhida; rotulos a 11 sp com largura minima de 88 dp (sem cortes no Honor).
+- Icone novo (tools/icon_gen.py): esfera laranja com estrela numa aura dourada com faiscas azuis, fundo violeta;
+  monocromatico = aura + esfera com a estrela vazada. Visto no ecra inicial do Honor.
+- Regressao t44 (so Kotlin e PNGs; as .so e os assets do jogo sao iguais byte a byte aos da t42): RP5 luta 60,0/60,0
+  (GPU 8,3 ms) e campanha 60,0/59,9; Cube 540p luta 49,0/43,1 e campanha 49,8 e 50,4. A campanha do Cube na t42
+  tinha dado 55,1; A/B logo a seguir, a t42 no mesmo estado do aparelho: 50,4/41,6, igual a t44 (a variacao e do
+  aparelho; t26-t38 deram 50,2-53,1). Imagem certa nos mosaicos (cabelo preto, sem quadrados).
+- README (PT/EN/ES) e CHANGELOG/notas da 0.2.0 completos, com problemas conhecidos e imagens em docs/img/.

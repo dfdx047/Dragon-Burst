@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """Dragon Burst launcher icon generator (pure Python + numpy + Pillow).
 
-Concept: a white-hot impact seen head-on. A torn shockwave ring with a streaky
-interior and a faint lavender pressure wave, rock fragments flung outward with
-motion trails, embers and lit dust. In the middle, as the hero element, a custom
-drawn (not a font) beveled gold-to-orange metal "DB" monogram with a dark chrome
-band, a dark outline with an orange rim, a diagonal "burst" slash and a star
-glint. The blast core sits behind the letters as a backlight, so the energy
-rays and the lens flare come out from behind the "DB".
-Original emblem: no characters, Dragon Balls, kanji or official logos.
+Concept (2026-10-30, the owner's request: an icon that says Dragon Ball Z): an orange crystal orb with a red star,
+held in a golden flame aura that rises like a Super Saiyan's, with blue-white sparks crackling around it (the
+Super Saiyan 2 lightning) and embers flying up. Everything is drawn here: no characters, official logos or text.
 
 Outputs (under app/src/main/res):
   drawable/ic_launcher_background.xml     dark radial gradient (vector)
@@ -145,7 +140,7 @@ BG_RADIUS = 76.4  # centre to corner
 
 def _bg_exact(r):
     r0 = r / 72.5
-    lin = col("#040207")[None, :] + (np.clip(1 - r0, 0, 1) ** 2)[:, None] * col("#2A1442")[None, :] * 0.6
+    lin = col("#040207")[None, :] + (np.clip(1 - r0, 0, 1) ** 2)[:, None] * col("#3A1A5E")[None, :] * 0.85
     vig = np.clip(1 - 0.6 * (r / 64) ** 2.4, 0.15, 1)
     return tonemap(lin * vig[:, None])
 
@@ -165,7 +160,7 @@ def bg_xml():
     items = "\n".join(f'                <item android:offset="{o:.2f}" android:color="#FF{c[0]:02X}{c[1]:02X}{c[2]:02X}" />'
                       for o, c in zip(BG_OFFS, BG_STOPS))
     return f'''<?xml version="1.0" encoding="utf-8"?>
-<!-- Fundo do icone Dragon Burst: quase preto com um leve violeta no centro. Gerado por tools/icon_gen.py. -->
+<!-- Fundo do icone Dragon Burst: violeta no centro, quase preto nas pontas. Gerado por tools/icon_gen.py. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
@@ -181,209 +176,141 @@ def bg_xml():
 '''
 
 
-# ---------------------------------------------------------------- "DB" monogram geometry
-# letterforms in a 0..30 tall box (before skew/scale/placement)
-D_OUT = [(-2.5, -2.5), (13, 0), (20.5, 7), (20.5, 23), (13, 30), (0, 30), (0, 3)]
-D_IN = [(6.2, 6), (11, 6), (14.3, 9.3), (14.3, 20.7), (11, 24), (6.2, 24)]
-B_OUT = [(0, 0), (15.5, 0), (19.5, 4), (19.5, 11), (16.8, 14.6), (20.5, 18), (20.5, 26.5),
-         (17, 30), (3, 30), (-1.5, 33)]
-B_IN1 = [(6.2, 5.6), (12.2, 5.6), (13.6, 7), (13.6, 10.4), (12.2, 11.8), (6.2, 11.8)]
-B_IN2 = [(6.2, 17.6), (12.8, 17.6), (14.4, 19.2), (14.4, 23), (12.8, 24.6), (6.2, 24.6)]
-B_DX = 23.0
-SKEW = math.tan(math.radians(15))
-LETTER_R = 23.0   # max radius (dp) of the letter shapes from the centre
+# ---------------------------------------------------------------- the orb, the aura, the sparks
+ORB_X, ORB_Y, ORB_R = 54.0, 56.5, 17.5   # dp; the aura and sparks stay inside the 66 dp safe circle
+STAR_R = 8.2
 
 
-def _local(pts, dx):
-    return [((x + dx) + (15 - y) * SKEW, y) for x, y in pts]
+def star_pts(cx, cy, r, inner=0.43, rot=-math.pi / 2):
+    pts = []
+    for i in range(10):
+        rad = r if i % 2 == 0 else r * inner
+        a = rot + i * math.pi / 5
+        pts.append(P(cx + rad * math.cos(a), cy + rad * math.sin(a)))
+    return pts
 
 
-def _fit():
-    pts = _local(D_OUT, 0) + _local(B_OUT, B_DX)
-    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-    mx, my = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-    rmax = max(math.hypot(x - mx, y - my) for x, y in pts)
-    sc = LETTER_R / rmax
-    return sc, CX - mx * sc, CY - my * sc
+def aura_mask(scale, seed, sharp):
+    """flame aura: spikes around the orb, longer and narrower upward (the aura rises)"""
+    rng = np.random.default_rng(seed)
+    dx, dy = X - ORB_X, Y - ORB_Y
+    rr = np.hypot(dx, dy)
+    ang = np.arctan2(dy, dx)                 # -pi/2 = up
+    up = np.clip(-np.sin(ang), 0, 1)        # 1 straight up, 0 at the sides and below
+    n = 13
+    phase = rng.uniform(0, 2 * math.pi)
+    spikes = np.zeros_like(ang)
+    for k, amp in ((n, 1.0), (n * 2 + 1, 0.35)):
+        spikes += amp * np.clip(np.cos(ang * k + phase), 0, 1) ** sharp
+    spikes /= 1.35
+    wob = np.zeros_like(ang)
+    for k in range(2, 9):
+        wob += np.sin(ang * k + rng.uniform(0, 6.3)) * rng.uniform(0.3, 1.0) / k
+    reach = (ORB_R + 3.0 + 3.5 * up + spikes * (3 + 8.5 * up ** 1.5) + wob * 1.0) * scale
+    # flames lean upward: the edge is softer and taller above the orb
+    edge = 0.9 + 1.6 * up
+    return np.clip((reach - rr) / edge, 0, 1).astype(np.float32), rr, ang, up
 
 
-SC, OX, OY = _fit()
-
-
-def place(pts, dx):
-    return [P(OX + x * SC, OY + y * SC) for x, y in _local(pts, dx)]
-
-
-def letters_mask():
-    m = mask_poly(place(D_OUT, 0)) - mask_poly(place(D_IN, 0))
-    m = np.maximum(m, mask_poly(place(B_OUT, B_DX)) - mask_poly(place(B_IN1, B_DX)) - mask_poly(place(B_IN2, B_DX)))
-    m = np.clip(m, 0, 1)
-    # diagonal slash cut through both letters (the 'burst')
-    a = (OX + (-5.0) * SC, OY + 24.6 * SC)
-    b = (OX + 42.6 * SC, OY + 4.9 * SC)
-    cut = mask_lines([[P(*a), P(*b)]], 0.95 * SC * U)
-    return np.clip(m - cut, 0, 1), cut
-
-
-def metal(M):
-    """beveled gold-to-orange metal shading with a dark chrome band"""
-    bw = 1.0 * SC * U
-    h = np.clip((blur(M, bw * 0.55) - 0.5) * 2, 0, 1)
-    h = h * h * (3 - 2 * h)
-    gy, gx = np.gradient(h)
-    k = bw * 0.9
-    nx, ny, nz = -gx * k, -gy * k, np.ones_like(h)
-    ln = np.sqrt(nx * nx + ny * ny + nz * nz)
-    nx, ny, nz = nx / ln, ny / ln, nz / ln
-    L = np.array([-0.45, -0.7, 0.55]); L /= np.linalg.norm(L)
-    diff = np.clip(nx * L[0] + ny * L[1] + nz * L[2], 0, 1)
-    spec = np.clip(2 * diff * nz - L[2], 0, 1) ** 30
-    ys = np.clip((Y - OY + 2 * SC) / (34 * SC), 0, 1)
-    stops = [(0.0, "#FFF4C8"), (0.18, "#FFDC5A"), (0.42, "#FFB21E"), (0.475, "#C2600A"), (0.50, "#4A1404"),
-             (0.525, "#FF7A10"), (0.62, "#FFB040"), (0.80, "#E8500E"), (1.0, "#6A1002")]
-    c = ramp(ys, stops) * (0.35 + 0.9 * diff)[..., None] + spec[..., None] * 1.1
-    edge = np.clip(-(gx + gy) * bw * 0.9, 0, 1) * M * (h < 0.6)
-    c += edge[..., None] * HOT * 1.2
-    return c
-
-
-# ---------------------------------------------------------------- scene
-def rock(cx, cy, r, rng):
-    n = int(rng.integers(4, 7))
-    angs = (np.arange(n) + rng.uniform(-0.3, 0.3, n)) * 2 * math.pi / n + rng.uniform(0, 6.3)
-    return [(cx + math.cos(a) * r * rng.uniform(0.55, 1.15), cy + math.sin(a) * r * rng.uniform(0.55, 1.15)) for a in angs]
+def bolt(rng, x0, y0, x1, y1, depth=6, jag=2.6):
+    pts = [(x0, y0), (x1, y1)]
+    for d in range(depth):
+        nxt = [pts[0]]
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            mx, my = (ax + bx) / 2, (ay + by) / 2
+            lx, ly = bx - ax, by - ay
+            ln = math.hypot(lx, ly) or 1
+            off = rng.uniform(-1, 1) * jag * ln / 9
+            nxt += [(mx - ly / ln * off, my + lx / ln * off), (bx, by)]
+        pts = nxt
+    return [P(x, y) for x, y in pts]
 
 
 def render():
     """returns (tonemapped RGB at W, opaque mask at W, monochrome mask at W)"""
-    rng = np.random.default_rng(23)
-    base = untonemap(bg_image(W))
-    img = base.copy()
+    rng = np.random.default_rng(29)
+    img = untonemap(bg_image(W))
     opaque = np.zeros((W, W), np.float32)
-    dx, dy = X - CX, Y - CY
-    rr = np.hypot(dx, dy)
-    ang = np.arctan2(dy, dx)
 
-    an = np.zeros_like(ang)
-    for k in range(2, 48):
-        an += np.sin(ang * k + rng.uniform(0, 6.3)) * rng.uniform(0.2, 1.0) / k ** 0.8
-    an = (an - an.min()) / (an.max() - an.min())
+    # aura: three layers, outer orange glow, gold flames, white-gold core
+    outer, rr, ang, up = aura_mask(1.08, 3, 8)
+    mid, _, _, _ = aura_mask(1.0, 5, 12)
+    core, _, _, _ = aura_mask(0.86, 7, 16)
+    streak = fbm(11, octaves=4, base=4)
+    # vertical licks inside the flames
+    lick = np.asarray(Image.fromarray(streak, "F").resize((W // 6, W), Image.BICUBIC).resize((W, W), Image.BICUBIC), np.float32)
+    lick = 0.65 + 0.7 * np.clip(lick - 0.35, 0, 1)
+    add(img, blur(outer, 4.0 * U), col("#FF6A00"), 0.5)
+    add(img, blur(outer, 1.0 * U) * lick, col("#FF7A12"), 0.8)
+    add(img, blur(mid, 0.45 * U) * lick, col("#FFB800"), 1.0)
+    add(img, blur(core, 0.6 * U) * lick, col("#FFE070"), 0.55)
+    mono_aura = mid
 
-    # lit smoke/dust around the ring
-    smoke = fbm(77, octaves=5, base=5)
-    sm = np.clip((smoke - 0.42) * 2.2, 0, 1) * np.exp(-((rr - 33) / 8) ** 2)
-    add(img, sm.astype(np.float32), col("#4A1606"), 0.7)
+    # sparks: blue-white lightning crackling around the aura
+    bolts = []
+    for (a0, a1, r0, r1) in ((-2.5, -2.0, 22, 31.5), (-0.4, 0.2, 23, 31), (2.25, 2.75, 22, 29.5)):
+        x0, y0 = ORB_X + r0 * math.cos(a0), ORB_Y + r0 * math.sin(a0)
+        x1, y1 = ORB_X + r1 * math.cos(a1), ORB_Y + r1 * math.sin(a1)
+        bolts.append(bolt(rng, x0, y0, x1, y1))
+    bm = mask_lines(bolts, 0.7 * U)
+    add(img, blur(bm, 2.2 * U), col("#3D8BFF"), 1.6)
+    add(img, blur(bm, 0.6 * U), col("#9FD4FF"), 1.4)
+    add(img, bm, WHITE, 1.2)
 
-    # main shockwave ring: razor outer edge, streaky inner falloff, torn by angular noise
-    RING = 31.0
-    R = RING + (an - 0.5) * 1.2
-    tear = np.clip((an - 0.3) * 4.0, 0, 1)
-    inner = np.where(rr <= R, np.clip((rr - (R - 6)) / 6, 0, 1) ** 2.4, 0).astype(np.float32)
-    edge = (np.exp(-((rr - R) / 0.42) ** 2) * (rr <= R + 0.5)).astype(np.float32)
-    streak = 0.55 + 0.45 * np.sin(ang * 61 + an * 9) ** 2
-    ring = (inner * 0.8 * streak + edge * 1.5) * tear
-    gr = blur(ring, 3.5 * U)
-    add(img, gr * (rr > R - 2), RED * 0.5 + EMBER * 0.5, 0.8)
-    add(img, gr * (rr <= R - 2), RED * 0.3 + EMBER * 0.4, 0.12)
-    add(img, blur(ring, 1.1 * U), EMBER, 0.6)
-    add(img, ring, EMBER * 0.35 + GOLD * 0.65, 1.0)
-    add(img, edge * tear, WHITE, 0.9)
-    mono_ring = np.clip((np.exp(-((rr - (R - 0.6)) / 1.0) ** 2) - 0.35) * 3, 0, 1) * (tear > 0.5)
+    # embers flying up
+    for _ in range(26):
+        a = rng.uniform(-math.pi, 0)
+        r = rng.uniform(19, 31)
+        ex, ey = ORB_X + r * math.cos(a) * 1.05, ORB_Y + r * math.sin(a)
+        if math.hypot(ex - 54, ey - 54) > 31.5:
+            continue
+        s = rng.uniform(0.25, 0.6)
+        e = np.exp(-(((X - ex) / s) ** 2 + ((Y - ey) / (s * 2.4)) ** 2)).astype(np.float32)
+        add(img, e, HOT if rng.random() < 0.5 else GOLD, rng.uniform(0.8, 1.6))
 
-    # faint lavender outer pressure wave
-    R2 = 35.8
-    e2 = (np.exp(-((rr - R2) / 0.35) ** 2) * np.clip((an - 0.45) * 3, 0, 1)).astype(np.float32)
-    add(img, blur(e2, 1.4 * U), LAV, 0.8)
-    add(img, e2, HOT, 0.4)
+    # the orb: an orange crystal sphere
+    dx, dy = X - ORB_X, Y - ORB_Y
+    d = np.hypot(dx, dy) / ORB_R
+    disc = np.clip((1 - d) * ORB_R * U / 1.5, 0, 1).astype(np.float32)
+    add(img, blur(disc, 1.6 * U), GOLD, 1.0)                     # rim light from the aura
+    z = np.sqrt(np.clip(1 - d ** 2, 0, 1))
+    lx, ly, lz = -0.45, -0.6, 0.66                                # light from the upper left
+    nx, ny = dx / ORB_R, dy / ORB_R
+    lam = np.clip(nx * lx + ny * ly + z * lz, 0, 1)
+    body = ramp(0.25 + 0.75 * lam, [(0, "#8A2A00"), (0.35, "#D9540A"), (0.7, "#FF9A1E"), (1, "#FFC85A")])
+    # light passing through the crystal pools on the far (lower right) side
+    caustic = np.exp(-(((nx - 0.38) / 0.42) ** 2 + ((ny - 0.45) / 0.30) ** 2)).astype(np.float32)
+    body = body + caustic[..., None] * col("#FFD27A")[None, None, :] * 0.9
+    edge_dark = np.clip((d - 0.82) / 0.18, 0, 1) ** 1.5
+    body = body * (1 - 0.55 * edge_dark[..., None])
+    orb = untonemap(np.clip(body * 0.92, 0, 0.99))
+    over(img, disc, orb)
+    opaque = np.maximum(opaque, disc)
 
-    # energy rays from the core, coming out from behind the letters
-    rays = np.zeros((W, W), np.float32)
-    for i in range(46):
-        a = rng.uniform(0, 2 * math.pi)
-        Lr = rng.uniform(16, 29)
-        wd = rng.uniform(0.35, 1.1)
-        p0 = (CX + math.cos(a + 1.5708) * wd, CY + math.sin(a + 1.5708) * wd)
-        p1 = (CX - math.cos(a + 1.5708) * wd, CY - math.sin(a + 1.5708) * wd)
-        tip = (CX + math.cos(a) * Lr, CY + math.sin(a) * Lr)
-        rays = np.maximum(rays, mask_poly([P(*p0), P(*tip), P(*p1)]) * rng.uniform(0.25, 0.8))
-    rays *= np.clip(1 - rr / 29, 0, 1) ** 0.6
-    add(img, blur(rays, 1.1 * U), EMBER, 0.3)
-    add(img, rays, GOLD, 0.6)
+    # the red star, with a darker bevel
+    sm = mask_poly(star_pts(ORB_X + 0.4, ORB_Y + 1.0, STAR_R))
+    sm = np.asarray(Image.fromarray(sm, "F").resize((W, W)), np.float32)
+    sm = blur(sm, 0.12 * U) * disc
+    inner = np.clip(sm - blur(1 - sm, 0.35 * U) * 2.2, 0, 1)
+    over(img, sm, untonemap(np.full(3, 0.5, np.float32) * col("#7A0A0A") * 1.6))
+    over(img, inner, untonemap(col("#E0261C") * 0.95))
+    add(img, inner * np.clip(-(Y - ORB_Y) / STAR_R, 0, 1) * 0.6, col("#FF6A40"), 0.6)
 
-    # core: a dimmed backlight halo behind the letters, plus a horizontal lens flare
-    for rad, c, k in [(20, RED, 0.16), (11, EMBER, 0.28), (5.5, GOLD, 0.35), (2.5, WHITE, 0.8)]:
-        add(img, np.exp(-((dx / rad) ** 2 + (dy / rad) ** 2)).astype(np.float32), c, k)
-    fl = np.exp(-((dx / 30) ** 2 + (dy / 0.45) ** 2)).astype(np.float32)
-    add(img, fl, HOT, 0.9)
-    add(img, blur(fl, 1.0 * U), EMBER, 0.7)
-    fv = np.exp(-((dx / 0.35) ** 2 + (dy / 14) ** 2)).astype(np.float32)
-    add(img, fv, HOT, 0.35)
+    # glassy highlights: a soft window reflection and a hard specular dot
+    hl = np.exp(-((((X - (ORB_X - 6.0)) * 0.8 + (Y - (ORB_Y - 7.8)) * 0.6) / 4.4) ** 2 +
+                  ((-(X - (ORB_X - 6.0)) * 0.6 + (Y - (ORB_Y - 7.8)) * 0.8) / 2.1) ** 2)).astype(np.float32)
+    add(img, hl * disc, WHITE, 2.2)
+    dot = np.exp(-(((X - (ORB_X + 6.8)) / 0.9) ** 2 + ((Y - (ORB_Y + 7.2)) / 0.9) ** 2)).astype(np.float32)
+    add(img, dot * disc, HOT, 1.4)
+    # thin dark outline so the orb reads on the flames at 48 px
+    ring = np.clip(1 - np.abs(d - 1.0) * ORB_R * U / (0.55 * U), 0, 1).astype(np.float32)
+    over(img, ring * 0.7, untonemap(col("#5A1A00") * 0.9))
 
-    # debris: rock shards flung outward, kept out at the ring (never over the letters)
-    specs = []
-    while len(specs) < 16:
-        a = rng.uniform(0, 2 * math.pi)
-        size = rng.uniform(1.0, 4.2)
-        d = rng.uniform(27 + size, 44)
-        x, y = CX + math.cos(a) * d, CY + math.sin(a) * d
-        if 9 < x < 99 and 9 < y < 99:
-            specs.append((a, d, size))
-    for a, d, size in sorted(specs, key=lambda s: s[2]):
-        x, y = CX + math.cos(a) * d, CY + math.sin(a) * d
-        vx, vy = math.cos(a), math.sin(a)
-        poly = rock(x, y, size, rng)
-        tl = min(size * 3.0, d - size - 26)
-        tr = mask_lines([[P(x - vx * size * 0.5, y - vy * size * 0.5), P(x - vx * (size * 0.5 + tl), y - vy * (size * 0.5 + tl))]],
-                        size * 0.45 * U)
-        add(img, blur(tr, 0.7 * U) * 0.3 * (rr > 25.5), EMBER, 0.8)
-        m = mask_poly([P(*p) for p in poly])
-        lit = mask_poly([P(px - vx * 0.3, py - vy * 0.3) for px, py in poly])
-        rim = np.clip(m - lit, 0, 1)
-        gl = np.clip(1 - ((X - x) * vx + (Y - y) * vy + size) / (2 * size), 0, 1) ** 2
-        body = col("#120705")[None, None, :] + (gl[..., None] ** 2.5 * col("#8A3410")[None, None, :])
-        dof = 0.0 if size < 3.0 else (size - 3.0) * 0.35 * U
-        if dof > 0:
-            m = blur(m, dof); rim = blur(rim, dof)
-        over(img, m, body)
-        opaque = np.maximum(opaque, m)
-        add(img, rim, GOLD * 0.6 + HOT * 0.4, 1.2)
-        add(img, blur(rim, 0.6 * U), EMBER, 0.9)
-
-    # embers
-    em = np.zeros((W, W), np.float32)
-    for i in range(30):
-        a = rng.uniform(0, 2 * math.pi); d = rng.uniform(26, 46)
-        x = CX + math.cos(a) * d; y = CY + math.sin(a) * d
-        em = np.maximum(em, mask_lines([[P(x, y), P(x + math.cos(a) * 1.5, y + math.sin(a) * 1.5)]], 0.26 * U) * rng.uniform(0.4, 1))
-    add(img, blur(em, 0.8 * U), EMBER, 1.0)
-    add(img, em, HOT, 0.9)
-
-    # vignette on everything drawn over the background (the background has its own falloff)
-    vig = np.clip(1 - 0.6 * (rr / 64) ** 2.4, 0.15, 1)
-    img = base + (img - base) * vig[..., None]
-
-    # ---- the hero: metal "DB" monogram over the backlight
-    M, cut = letters_mask()
-    O = np.clip(blur(M, 1.15 * SC * U) * 3.2, 0, 1)       # dark outline
-    add(img, blur(M, 4.5 * U), EMBER, 0.3)
-    over(img, O, col("#120402"))
-    rimO = np.clip(O - np.clip(blur(M, 0.55 * SC * U) * 2.6, 0, 1), 0, 1)
-    add(img, rimO, EMBER, 0.6)
-    over(img, M, metal(M))
-    opaque = np.maximum(opaque, O)
-    # hot light leaking through the slash
-    add(img, blur(cut, 0.9 * U) * O, HOT, 1.1)
-    add(img, blur(cut, 3 * U) * O, EMBER, 0.5)
-    # star glint on the D's top corner
-    gx, gy = OX + (-2.5 + 17.5 * SKEW) * SC, OY - 2.5 * SC
-    gs = SC / 1.22
-    g = (np.exp(-(((X - gx) / (0.45 * gs)) ** 2 + ((Y - gy) / (5.5 * gs)) ** 2))
-         + np.exp(-(((X - gx) / (5.5 * gs)) ** 2 + ((Y - gy) / (0.45 * gs)) ** 2))).astype(np.float32)
-    add(img, g, WHITE, 1.4)
-    add(img, blur(g, 1.3 * U), GOLD, 0.8)
-
-    mono = np.maximum(M, mono_ring.astype(np.float32))
-    return tonemap(np.clip(img, 0, None)), opaque, mono
+    # monochrome (themed icons): the aura's silhouette, a gap, the orb with the star cut out
+    gap = np.clip((d - 1.0) * ORB_R / 1.6, 0, 1)
+    mono = np.maximum(mono_aura * np.clip((d - 1.12) * ORB_R / 0.6, 0, 1) * 0.55, disc * (1 - sm))
+    mono = np.where(d < 1.0, disc * (1 - sm), mono)
+    return tonemap(np.clip(img, 0, None)), opaque, mono.astype(np.float32)
 
 
 # ---------------------------------------------------------------- outputs
@@ -521,7 +448,7 @@ def main():
     F, O, Mo = render()
     save_res(F, O, Mo)
     preview(F, O, Mo)
-    print("letter scale %.3f -> %s" % (SC, PREVIEW))
+    print("->", PREVIEW)
 
 
 if __name__ == "__main__":
