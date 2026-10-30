@@ -340,7 +340,8 @@ void SetPointSpriteUbo(bool on);  // renut/0108
 
 // O Renut sem shaderInt64 (o driver da Qualcomm no Adreno 650 nao o tem): nos shaders so o point_sprite_gs (endereco de
 // 64 bits do SharedConstants) e o bc_decode_cs (so sem BC nativo, ou seja na Mali) o usam. Sem ele, os point sprites
-// leem o SharedConstants do UBO do set 7 (renut/0108), sozinho: o Renut so exige shaderInt64 quando nao ha BC nativo.
+// leem o SharedConstants do UBO do set 7 (renut/0108), sozinho, e sem BC nativo as texturas descomprimem-se na CPU: o
+// Renut nao exige shaderInt64 (Galaxy M54, Mali-G68: nem um nem outro).
 // O driver da Qualcomm so liga 4 descriptor sets: o layout dos draws junta as texturas e os samplers (renut/0109).
 // Ligado, usa a variante do UBO mesmo com shaderInt64 (teste).
 REXCVAR_DEFINE_BOOL(swordman_renut_point_ubo, false, "SwordMan",
@@ -401,8 +402,10 @@ bool SwordManRenutDeviceSupported(std::string* why) {
       if (!ok) missing += std::string(" ") + what;
     };
     need(f12.bufferDeviceAddress, "bufferDeviceAddress");
-    // shaderInt64: so para a descompressao BC por compute (sem BC nativo); os point sprites passam ao UBO.
-    need(f.features.shaderInt64 || f.features.textureCompressionBC, "shaderInt64");
+    // shaderInt64: so para a descompressao BC por compute (sem BC nativo), que fica na CPU; os point sprites passam ao UBO.
+    if (!f.features.shaderInt64 && !f.features.textureCompressionBC) {
+      REXCVAR_SET(swordman_renut_bc_decode, std::string("cpu"));
+    }
     renut::gpu::SetPointSpriteUbo(REXCVAR_GET(swordman_renut_point_ubo) || !f.features.shaderInt64);
     need(f12.descriptorIndexing && f12.runtimeDescriptorArray && f12.descriptorBindingPartiallyBound &&
              f12.descriptorBindingVariableDescriptorCount && f12.descriptorBindingSampledImageUpdateAfterBind,

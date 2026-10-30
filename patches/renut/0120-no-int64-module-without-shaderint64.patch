@@ -1,0 +1,25 @@
+Dragon Burst renut 0120: no 64-bit point sprite module on a driver without shaderInt64
+
+The Galaxy M54 (Mali-G68) has neither shaderInt64 nor BC textures. The Renut now starts there with the BC textures
+decoded on the CPU (src/renut_glue.cpp), and nothing on that path may hand the driver a module declaring Int64:
+point_sprite_gs was created before being replaced by point_sprite_ubo_gs. It is created only when it is used.
+
+diff --git a/app/src/renut_engine/gpu/backend/video.cpp b/app/src/renut_engine/gpu/backend/video.cpp
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -375,10 +375,13 @@
+   }
+   s.rectangle_list_gs =
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(rectangle_list_gs), "rectangle_list_gs");
+-  s.point_sprite_gs =
+-      CreateHostShader(s.device.get(), RENUT_HOST_SHADER(point_sprite_gs), "point_sprite_gs");
+   // Dragon Burst: without shaderInt64 (or swordman_renut_point_ubo) the variant reading SharedConstants from set 7.
++  // The 64-bit one is not even created then: its module declares Int64, which the driver does not have.
+   const bool point_ubo = IsVulkan() && PointSpriteUbo();
++  if (!point_ubo) {
++    s.point_sprite_gs =
++        CreateHostShader(s.device.get(), RENUT_HOST_SHADER(point_sprite_gs), "point_sprite_gs");
++  }
+   if (point_ubo && !DrawSetsCompact()) {
+     s.point_sprite_gs = s.device->createShader(g_point_sprite_ubo_gs_spirv, sizeof(g_point_sprite_ubo_gs_spirv), "main",
+                                                plume::RenderShaderFormat::SPIRV);

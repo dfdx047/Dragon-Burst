@@ -653,3 +653,14 @@ draw_resolution_scale_x), o widescreen no Xenia em Vulkan (o HUD) e revalidar o 
   tinha dado 55,1; A/B logo a seguir, a t42 no mesmo estado do aparelho: 50,4/41,6, igual a t44 (a variacao e do
   aparelho; t26-t38 deram 50,2-53,1). Imagem certa nos mosaicos (cabelo preto, sem quadrados).
 - README (PT/EN/ES) e CHANGELOG/notas da 0.2.0 completos, com problemas conhecidos e imagens em docs/img/.
+
+## H: hotfix 0.2.1, Renut sem shaderInt64 (30/10, Galaxy M54, Mali-G68)
+
+- Log de um jogador (0.2.0, Auto): `Renut: o driver nao tem shaderInt64`, o jogo fecha 8 ms depois de abrir. O driver do
+  M54 nao tem shaderInt64 nem textureCompressionBC; era a unica coisa em falta (o Cube, Mali-G57, tem shaderInt64).
+- Sem os dois, `swordman_renut_bc_decode` passa sozinho a `cpu` (renut_glue.cpp): o `bc_decode_cs` e o unico que precisava
+  dele alem do point sprite, e o decode na CPU ja existia (renut/0020). renut/0120: sem shaderInt64 o `point_sprite_gs`
+  de 64 bits nem chega a ser criado.
+- Sem acesso ao M54 (os aparelhos estavam noutros testes): o APK foi ao jogador e o dono confirmou que funcionou. Sem log
+  nem numeros desta versao: falta medir o FPS e o custo do decode na CPU nos carregamentos. Log esperado:
+  `BC textures: decoded on the CPU`.

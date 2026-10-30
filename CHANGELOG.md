@@ -7,6 +7,38 @@ números de cada rodada, fica em [docs/ESTADO.md](docs/ESTADO.md).
 Each version in Portuguese, English and Spanish. The GitHub release text (what the app shows when it
 updates) is in [docs/release/](docs/release/).
 
+# 0.2.1: Renut sem shaderInt64 · Renut without shaderInt64 · Renut sin shaderInt64 (2026-10-30)
+
+## PT
+
+Correção para aparelhos em que o jogo fechava logo ao abrir com o Renut.
+
+Correções
+- Galaxy M54 (Mali-G68) e outros aparelhos cujo driver não tem texturas BC nem shaderInt64: o jogo fechava ao abrir, com o aviso de que o driver não tem o que o Renut precisa. Agora o Renut abre neles, com as texturas descomprimidas na CPU.
+
+Problemas conhecidos
+- Nesses aparelhos, descomprimir as texturas na CPU pode custar mais tempo ao carregar. Desempenho ainda não medido; se fechar ou ficar lento, Desempenho > Renderizador > Xenia.
+
+## EN
+
+Fix for devices where the game closed right at launch with the Renut.
+
+Fixes
+- Galaxy M54 (Mali-G68) and other devices whose driver has neither BC textures nor shaderInt64: the game closed at launch, with the warning that the driver lacks what the Renut needs. The Renut now starts on them, with the textures decompressed on the CPU.
+
+Known issues
+- On those devices, decompressing textures on the CPU may take longer while loading. Performance not measured yet; if it closes or runs slowly, Performance > Renderer > Xenia.
+
+## ES
+
+Corrección para dispositivos en los que el juego se cerraba al abrir con el Renut.
+
+Correcciones
+- Galaxy M54 (Mali-G68) y otros dispositivos cuyo driver no tiene texturas BC ni shaderInt64: el juego se cerraba al abrir, con el aviso de que el driver no tiene lo que el Renut necesita. Ahora el Renut abre en ellos, con las texturas descomprimidas en la CPU.
+
+Problemas conocidos
+- En esos dispositivos, descomprimir las texturas en la CPU puede tardar más al cargar. Rendimiento aún sin medir; si se cierra o va lento, Rendimiento > Renderizador > Xenia.
+
 # 0.2.0: Renut · Renut · Renut (2026-10-28)
 
 <table>
