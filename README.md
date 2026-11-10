@@ -226,6 +226,8 @@ luta foi de 12-16 FPS para até 60 FPS. O método e as ferramentas estão no
   tela de 120 Hz).
 - **Não testado:** qualquer coisa abaixo de um Mali-G57 MC4 ou de um Adreno 6xx intermediário. A
   predefinição Mínimo (480p) existe para esses aparelhos, mas não foi medida.
+- **CPUs ARMv8.0** (Snapdragon 660/665, Exynos 9611 e outros só com Cortex-A73/A53): desde a 0.2.2 o APK traz
+  um conjunto próprio para eles, escolhido sozinho pelo CPU. Arranca no Mi A3 (Snapdragon 665); desempenho não medido.
 - Sempre: Android 11 ou mais novo, arm64, Vulkan e cerca de 6 GB livres para os dados do jogo.
 
 ## Problemas conhecidos

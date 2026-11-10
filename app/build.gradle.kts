@@ -35,6 +35,11 @@ val uiOnly = (project.findProperty("df.uiOnly") as String?) == "true"
 // (app/src/main/cpp/d3d_trace_hooks.cpp, gerado por tools/d3d_trace_gen.py).
 // So para mapear a biblioteca D3D; nao usar em testes de desempenho.
 val d3dTrace = (project.findProperty("df.d3dTrace") as String?) == "true"
+// APK universal: o nativo vai em dois conjuntos, ARMv8.2 (LSE em linha; o externalNativeBuild normal) e ARMv8.0
+// para CPUs sem LSE (Snapdragon 665 e outros; tarefa legacyNative, mais abaixo, com as .so em "_v80"). O GameLib.kt
+// escolhe pelo HWCAP do CPU. "-Pdb.noLegacy=true" salta o conjunto ARMv8.0 (iteracao mais rapida; o APK resultante
+// nao abre o jogo em CPUs sem LSE).
+val buildLegacy = !uiOnly && (project.findProperty("db.noLegacy") as String?) != "true"
 
 android {
     namespace = "com.dfdx047.dragonburst"
@@ -47,8 +52,8 @@ android {
         // estao todos disponiveis no bionic.
         minSdk = 30
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.2.1"
+        versionCode = 6
+        versionName = "0.2.2"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -67,6 +72,7 @@ android {
                         "-DREXGLUE_ENABLE_TRACY=OFF",
                         "-DREXGLUE_BUILD_TESTS=OFF",
                         "-DDB_D3D_TRACE=" + (if (d3dTrace) "ON" else "OFF"),
+                        "-DDB_LEGACY_ARMV8=OFF",
                     )
                     // Frame pointers em todo o codigo nativo: o vigia (watchdog.cpp) e o
                     // simpleperf seguem a cadeia de frames para mostrar as pilhas.
@@ -98,6 +104,8 @@ android {
             java.srcDir("../external/burstlimit/thirdparty/rexglue-sdk/thirdparty/sdl3/android-project/app/src/main/java")
             // libgame.zdat + libgame.json: o codigo do jogo encriptado (tools/pack-libgame.py, chamado pelo CMake).
             assets.srcDir("build/dragonburst-assets")
+            // librexruntime_v80.so e librexgpu-xenos_v80.so do conjunto ARMv8.0 (tarefa legacyNative).
+            if (buildLegacy) jniLibs.srcDir("build/legacy-jni")
         }
     }
 
@@ -168,8 +176,65 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
-// Os assets juntam-se depois do CMake (que escreve o libgame.zdat).
+// Conjunto ARMv8.0 do APK universal: o mesmo CMakeLists, com DB_LEGACY_ARMV8=ON e DB_LIB_SUFFIX=_v80, numa pasta
+// propria (.cxx-legacy). Escreve libgame_v80.zdat/json em build/dragonburst-assets; das .so so as "_v80" entram no
+// APK (build/legacy-jni): o libSDL3.so, o libmain.so e os hooks sao os do conjunto ARMv8.2, ja compilados em ARMv8.0.
+val legacyCxxDir = layout.projectDirectory.dir(".cxx-legacy/Release/arm64-v8a")
+val legacyObjDir = layout.buildDirectory.dir("intermediates/cxx-legacy/Release/obj/arm64-v8a")
+val legacyConfigure = tasks.register<Exec>("legacyNativeConfigure") {
+    val ndk = android.ndkDirectory.absolutePath
+    val cmakeBin = if (cmakeDir != null) "$cmakeDir/bin/cmake" else "cmake"
+    val objDir = legacyObjDir.get().asFile.absolutePath
+    val args = mutableListOf(
+        cmakeBin,
+        "-H" + file("src/main/cpp/CMakeLists.txt").parentFile.absolutePath,
+        "-B" + legacyCxxDir.asFile.absolutePath,
+        "-GNinja",
+        "-DCMAKE_SYSTEM_NAME=Android",
+        "-DCMAKE_SYSTEM_VERSION=30",
+        "-DANDROID_PLATFORM=android-30",
+        "-DANDROID_ABI=arm64-v8a",
+        "-DCMAKE_ANDROID_ARCH_ABI=arm64-v8a",
+        "-DANDROID_NDK=$ndk",
+        "-DCMAKE_ANDROID_NDK=$ndk",
+        "-DCMAKE_TOOLCHAIN_FILE=$ndk/build/cmake/android.toolchain.cmake",
+        "-DCMAKE_C_FLAGS=-fno-omit-frame-pointer",
+        "-DCMAKE_CXX_FLAGS=-fno-omit-frame-pointer",
+        "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=$objDir",
+        "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$objDir",
+        "-DANDROID_STL=c++_shared",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+        "-DREXGLUE_ENABLE_TRACY=OFF",
+        "-DREXGLUE_BUILD_TESTS=OFF",
+        "-DDB_D3D_TRACE=" + (if (d3dTrace) "ON" else "OFF"),
+        "-DDB_LEGACY_ARMV8=ON",
+        "-DDB_LIB_SUFFIX=_v80",
+    )
+    if (cmakeDir != null) args += "-DCMAKE_MAKE_PROGRAM=$cmakeDir/bin/ninja"
+    commandLine(args)
+}
+val legacyBuild = tasks.register<Exec>("legacyNativeBuild") {
+    dependsOn(legacyConfigure)
+    val cmakeBin = if (cmakeDir != null) "$cmakeDir/bin/cmake" else "cmake"
+    commandLine(cmakeBin, "--build", legacyCxxDir.asFile.absolutePath,
+        "--target", "game_pack", "rexruntime", "rexgpu-xenos")
+}
+val legacyNative = tasks.register<Sync>("legacyNative") {
+    dependsOn(legacyBuild)
+    from(legacyObjDir) { include("*_v80.so") }
+    // O SDK fixa a saida do librexruntime em out/<plataforma> (o plugin da GPU e copiado para junto do libgame.so,
+    // o runtime nao): sem esta linha o APK ia sem librexruntime_v80.so e o jogo nao abria nos CPUs ARMv8.0.
+    from(rootProject.file("external/burstlimit/thirdparty/rexglue-sdk/out/linux-arm64")) {
+        include("librexruntime_v80.so")
+    }
+    into(layout.buildDirectory.dir("legacy-jni/arm64-v8a"))
+}
+
+// Os assets juntam-se depois do CMake (que escreve o libgame.zdat; o legacyNative escreve o libgame_v80.zdat), e as
+// .so do conjunto ARMv8.0 antes de se juntarem as bibliotecas nativas.
 tasks.configureEach {
     val m = Regex("merge(\\w+)Assets").matchEntire(name)
     if (m != null && !uiOnly) dependsOn("externalNativeBuild" + m.groupValues[1])
+    if (buildLegacy && (m != null || Regex("merge\\w+(JniLibFolders|NativeLibs)").matches(name))) dependsOn(legacyNative)
 }

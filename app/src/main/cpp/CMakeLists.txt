@@ -79,9 +79,39 @@ set(REXGLUE_ENABLE_FIDELITYFX OFF CACHE BOOL "" FORCE)
 # atomicos LSE em linha substituem as chamadas __aarch64_cas*/ldadd*, que no port do
 # Raging Blast 2 (RB2-Android) custavam varios % das threads do command processor e
 # da UI. Os dois aparelhos de teste (Snapdragon 865 e Unisoc T770) sao ARMv8.2.
-string(APPEND CMAKE_C_FLAGS " -march=armv8.2-a")
-string(APPEND CMAKE_CXX_FLAGS " -march=armv8.2-a")
+# DB_LEGACY_ARMV8: o conjunto ARMv8.0 para CPUs sem LSE (Snapdragon 660/665 / Kryo 260, Exynos 9611: so Cortex-A73/A53; o A76 do Snapdragon 675/730 ja e v8.2).
+# Os atomicos passam a ser chamadas __aarch64_* (outline atomics), que usam LSE em runtime onde existir. O APK leva
+# os dois conjuntos (APK universal): o Gradle corre este CMakeLists uma segunda vez com DB_LEGACY_ARMV8=ON e
+# DB_LIB_SUFFIX=_v80 (tarefa legacyNative do app/build.gradle.kts), e o GameLib.kt escolhe pelo HWCAP do CPU.
+option(DB_LEGACY_ARMV8 "Compila para ARMv8.0 (sem LSE/v8.2 em linha)" OFF)
+set(DB_LIB_SUFFIX "" CACHE STRING "Sufixo das .so deste conjunto (\"_v80\" no ARMv8.0)")
+set(DB_MARCH_V80 -march=armv8-a -moutline-atomics)
+if(DB_LEGACY_ARMV8)
+    set(DB_MARCH ${DB_MARCH_V80})
+else()
+    set(DB_MARCH -march=armv8.2-a)
+endif()
+list(JOIN DB_MARCH " " DB_MARCH_STR)
+string(APPEND CMAKE_C_FLAGS " ${DB_MARCH_STR}")
+string(APPEND CMAKE_CXX_FLAGS " ${DB_MARCH_STR}")
 add_subdirectory("${REXSDK_ROOT}" rexglue-sdk)
+
+# APK universal: o runtime e o plugin da GPU de cada conjunto tem nome proprio (librexruntime_v80.so,
+# librexgpu-xenos_v80.so); o libgame.so de cada conjunto liga ao runtime do mesmo conjunto e o runtime carrega o
+# plugin do mesmo conjunto (patch 0197 do SDK).
+if(DB_LIB_SUFFIX)
+    set_target_properties(rexruntime PROPERTIES OUTPUT_NAME "rexruntime${DB_LIB_SUFFIX}")
+    set_target_properties(rexgpu-xenos PROPERTIES OUTPUT_NAME "rexgpu-xenos${DB_LIB_SUFFIX}")
+endif()
+target_compile_definitions(rexruntime PRIVATE "REX_GPU_PLUGIN_SUFFIX=\"${DB_LIB_SUFFIX}\"")
+# So um libSDL3.so, um libmain.so e os hooks do adrenotools no APK, para os dois conjuntos: compilados em ARMv8.0
+# (outline atomics, LSE em runtime onde existir). Nao sao caminho quente. Ficam depois do SDK para prevalecerem
+# sobre o -march=armv8.2-a global (o ultimo -march ganha).
+foreach(T SDL3-shared main_hook file_redirect_hook gsl_alloc_hook hook_impl)
+    if(TARGET ${T})
+        target_compile_options(${T} PRIVATE ${DB_MARCH_V80})
+    endif()
+endforeach()
 
 #-----------------------------------------------------------------------------
 # libadrenotools: permite carregar um driver Vulkan alternativo (Turnip/Mesa)
@@ -159,7 +189,7 @@ add_library(burstlimit_recomp OBJECT ${GENERATED_SOURCES})
 target_include_directories(burstlimit_recomp PRIVATE "${BL_ROOT}" "${BL_ROOT}/src" "${BL_GENERATED}")
 target_link_libraries(burstlimit_recomp PRIVATE rex::runtime)
 target_precompile_headers(burstlimit_recomp PRIVATE "${BL_GENERATED}/burstlimit_pch.h")
-target_compile_options(burstlimit_recomp PRIVATE -march=armv8.2-a -ffp-contract=off)
+target_compile_options(burstlimit_recomp PRIVATE ${DB_MARCH} -ffp-contract=off)
 
 add_library(game SHARED ${BL_SOURCES} $<TARGET_OBJECTS:burstlimit_recomp>)
 
@@ -238,7 +268,7 @@ endif()
 # Alvo minimo: ARMv8.2-A (Snapdragon 865 / Cortex-A77 e A55 para cima, o que
 # inclui o Unisoc T770 do RG Cube). Fica depois do rexglue_configure_target, que
 # poe -march=armv8-a, para prevalecer.
-target_compile_options(game PRIVATE -march=armv8.2-a)
+target_compile_options(game PRIVATE ${DB_MARCH})
 
 # Chamadas entre funcoes do proprio libgame.so sem PLT (do Zandatsu, "Codegen 1"): as sub_* do codigo gerado tem
 # visibilidade padrao e cada chamada entre elas passava por um stub do PLT e pelo GOT. Com -Bsymbolic-functions o
@@ -258,18 +288,19 @@ endif()
 #-----------------------------------------------------------------------------
 set(DB_XEX "${BL_ROOT}/game_data_root/default.xex" CACHE FILEPATH "default.xex do codegen (chave do libgame.so)")
 set(DB_PACK_DIR "${DB_REPO_ROOT}/app/build/dragonburst-assets")
+set(DB_PACK_NAME "libgame${DB_LIB_SUFFIX}")
 add_custom_command(
-    OUTPUT "${DB_PACK_DIR}/libgame.zdat" "${DB_PACK_DIR}/libgame.json"
+    OUTPUT "${DB_PACK_DIR}/${DB_PACK_NAME}.zdat" "${DB_PACK_DIR}/${DB_PACK_NAME}.json"
     COMMAND python3 "${DB_REPO_ROOT}/tools/pack-libgame.py" "$<TARGET_FILE:game>" "${CMAKE_STRIP}" "${DB_XEX}"
-            "${DB_PACK_DIR}"
+            "${DB_PACK_DIR}" "${DB_PACK_NAME}"
     DEPENDS game "${DB_REPO_ROOT}/tools/pack-libgame.py" "${CMAKE_CURRENT_LIST_DIR}/loader/xex_image.cpp" "${DB_XEX}"
     COMMENT "libgame.so -> assets/libgame.zdat (encriptado)"
     VERBATIM)
-add_custom_target(game_pack DEPENDS "${DB_PACK_DIR}/libgame.zdat" "${DB_PACK_DIR}/libgame.json")
+add_custom_target(game_pack DEPENDS "${DB_PACK_DIR}/${DB_PACK_NAME}.zdat" "${DB_PACK_DIR}/${DB_PACK_NAME}.json")
 
 add_library(main SHARED "${CMAKE_CURRENT_LIST_DIR}/loader/game_lib_jni.cpp" "${CMAKE_CURRENT_LIST_DIR}/loader/xex_image.cpp")
 target_include_directories(main PRIVATE "${CMAKE_CURRENT_LIST_DIR}/loader" "${REXSDK_ROOT}/thirdparty")
 target_link_libraries(main PRIVATE mspack log)
-target_compile_options(main PRIVATE -march=armv8.2-a)
+target_compile_options(main PRIVATE ${DB_MARCH_V80})
 # O Gradle so compila os alvos da lista (build.gradle.kts): o libgame.so e o pacote vem por aqui.
 add_dependencies(main game_pack)

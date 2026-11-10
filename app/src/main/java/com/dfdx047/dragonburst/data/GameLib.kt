@@ -16,10 +16,15 @@ import javax.crypto.spec.SecretKeySpec
  * (assets/libgame.zdat, tools/pack-libgame.py). A chave e o SHA-256 da imagem PE do default.xex do jogador, lida pelo
  * libmain.so (app/src/main/cpp/loader/xex_image.cpp); o libgame.so desencriptado fica em getFilesDir() (privado da app) e o GameActivity
  * carrega-o de la. Feito no import e de novo quando o APK traz outro libgame (libgame.json "id").
+ *
+ * APK universal: o nativo vem em dois conjuntos. ARMv8.2 (libgame.zdat, librexruntime.so, librexgpu-xenos.so; LSE
+ * em linha) e ARMv8.0 para CPUs sem LSE, ex. Snapdragon 665 (libgame_v80.zdat, que liga a librexruntime_v80.so e
+ * carrega librexgpu-xenos_v80.so). A escolha e pelo HWCAP do CPU (CpuSet); o "id" de cada um e diferente, por isso
+ * trocar de conjunto refaz o libgame.so.
  */
 object GameLib {
-    private const val ASSET = "libgame.zdat"
-    private const val META = "libgame.json"
+    private val ASSET get() = CpuSet.libgame + ".zdat"
+    private val META get() = CpuSet.libgame + ".json"
 
     fun file(context: Context) = File(context.filesDir, "libgame.so")
     private fun stamp(context: Context) = File(context.filesDir, "libgame.id")
@@ -108,7 +113,8 @@ object GameLib {
         } finally {
             part.delete()
         }
-        val line = "import: libgame.so pronto (${out.length() / (1 shl 20)} MB, id ${m.id}, title ${m.titleId}, " +
+        val line = "import: libgame.so pronto (${CpuSet.describe()}, ${out.length() / (1 shl 20)} MB, id ${m.id}, " +
+            "title ${m.titleId}, " +
             "${System.currentTimeMillis() - started} ms)"
         android.util.Log.i("DragonBurst", line)
         // Tambem em logs/update.log (vai no Exportar logs): quando o APK trouxe outro jogo e ele foi refeito.

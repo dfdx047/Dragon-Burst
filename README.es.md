@@ -235,6 +235,8 @@ efectos, el combate pasó de 12-16 FPS a hasta 60 FPS. El método y las herramie
   pantalla de 120 Hz).
 - **Sin probar:** cualquier cosa por debajo de una Mali-G57 MC4 o de una Adreno 6xx de gama media. El
   preajuste Mínimo (480p) existe para esos dispositivos, pero no se midió.
+- **CPU ARMv8.0** (Snapdragon 660/665, Exynos 9611 y otros solo con Cortex-A73/A53): desde la 0.2.2 el APK lleva
+  un conjunto propio para ellas, elegido solo según la CPU. Arranca en el Mi A3 (Snapdragon 665); rendimiento sin medir.
 - Siempre: Android 11 o más nuevo, arm64, Vulkan y unos 6 GB libres para los datos del juego.
 
 ## Problemas conocidos

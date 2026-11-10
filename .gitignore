@@ -15,6 +15,7 @@
 .gradle/
 build/
 .cxx/
+.cxx-legacy/
 .externalNativeBuild/
 local.properties
 *.apk

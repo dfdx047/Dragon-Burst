@@ -1,0 +1,23 @@
+Dragon Burst 0197: the GPU plugin name carries the native set's suffix
+
+The APK carries two sets of the native libraries: ARMv8.2 (LSE atomics inline) and ARMv8.0 for CPUs without LSE
+(Snapdragon 665 and others), whose libraries end in "_v80" (librexruntime_v80.so, librexgpu-xenos_v80.so). The
+runtime of each set loads the GPU plugin of the same set: REX_GPU_PLUGIN_SUFFIX, defined by the app's CMake on
+rexruntime ("" when not defined).
+
+--- a/src/system/gpu_plugin_loader.cpp
++++ b/src/system/gpu_plugin_loader.cpp
+@@ -42,7 +42,12 @@
+ #elif REX_PLATFORM_MAC
+   return fmt::format("librexgpu-{}{}.dylib", name, postfix);
+ #else
+-  return fmt::format("librexgpu-{}{}.so", name, postfix);
++  // Dragon Burst 0197: the APK carries an ARMv8.2 set and an ARMv8.0 set ("_v80") of the native libraries; each
++  // runtime loads the GPU plugin of its own set.
++#ifndef REX_GPU_PLUGIN_SUFFIX
++#define REX_GPU_PLUGIN_SUFFIX ""
++#endif
++  return fmt::format("librexgpu-{}{}" REX_GPU_PLUGIN_SUFFIX ".so", name, postfix);
+ #endif
+ }
+ 

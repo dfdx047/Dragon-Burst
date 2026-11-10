@@ -230,6 +230,8 @@ the history with the numbers of every round, in [docs/ESTADO.md](docs/ESTADO.md)
   120 Hz screen).
 - **Not tested:** anything below a Mali-G57 MC4 or a mid-range Adreno 6xx. The Minimum preset (480p)
   exists for those devices, but it has not been measured.
+- **ARMv8.0 CPUs** (Snapdragon 660/665, Exynos 9611 and others with only Cortex-A73/A53): since 0.2.2 the APK
+  carries its own set for them, picked from the CPU on its own. Starts on the Mi A3 (Snapdragon 665); performance not measured.
 - Always: Android 11 or newer, arm64, Vulkan and about 6 GB free for the game data.
 
 ## Known issues
